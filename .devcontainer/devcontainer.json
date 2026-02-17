@@ -2,7 +2,7 @@
     "name": "Siedu Development",
     "dockerComposeFile": "../docker-compose.dev.yml",
     "service": "api",
-    "workspaceFolder": "/workspaces/siedu",
+    "workspaceFolder": "/workspaces/${localWorkspaceFolderBasename}",
     "forwardPorts": [
         8080,
         5173,
@@ -37,7 +37,7 @@
             "onAutoForward": "silent"
         }
     },
-    "postCreateCommand": "cd /workspaces/siedu/apps/api && npm install && cd /workspaces/siedu/apps/dashboard && npm install",
+    "postCreateCommand": "cd /app && npm install",
     "customizations": {
         "vscode": {
             "extensions": [
