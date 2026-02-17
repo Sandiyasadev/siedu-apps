@@ -3,11 +3,6 @@
     "dockerComposeFile": "../docker-compose.dev.yml",
     "service": "api",
     "workspaceFolder": "/workspaces/siedu",
-    "features": {
-        "ghcr.io/devcontainers/features/node:1": {
-            "version": "18"
-        }
-    },
     "forwardPorts": [
         8080,
         5173,
