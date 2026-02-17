@@ -1,0 +1,613 @@
+{
+  "name": "Smart Chat Responder mentahan",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "chat-message",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "aa6a75c4-a9f4-44bc-8cec-07552d183723",
+      "name": "Chat Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        -848,
+        112
+      ],
+      "webhookId": "chat-message"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "combinator": "and",
+          "conditions": [
+            {
+              "id": "check-content",
+              "leftValue": "={{ $json.content }}",
+              "operator": {
+                "operation": "notEmpty",
+                "type": "string"
+              },
+              "rightValue": ""
+            }
+          ],
+          "options": {
+            "caseSensitive": true,
+            "typeValidation": "strict",
+            "version": 3
+          }
+        },
+        "options": {}
+      },
+      "id": "eef7288e-9f10-4e8a-9080-6a77ff9b71b3",
+      "name": "Has Content?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        -640,
+        112
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={ \"success\": true, \"skipped\": true, \"reason\": \"empty_content\" }",
+        "options": {}
+      },
+      "id": "61b14485-fcf2-4b82-9622-09ee24e142fc",
+      "name": "Respond Skip Empty",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        -448,
+        288
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://api:8080/v1/internal/calculate-score",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Internal-Key",
+              "value": "={{ $env.INTERNAL_API_KEY }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"conversation_id\": \"{{ $('Chat Webhook').item.json.conversation_id }}\",\n  \"bot_id\": \"{{ $('Chat Webhook').item.json.bot_id }}\",\n  \"message\": {{ JSON.stringify($('Chat Webhook').item.json.content) }}\n}",
+        "options": {
+          "timeout": 10000
+        }
+      },
+      "id": "f804af9a-fc2f-4016-8943-f3c399ff5c37",
+      "name": "Calculate Handoff Score",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -448,
+        112
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const webhookData = $('Chat Webhook').first().json;\nconst scoreResult = $input.first().json;\n\nconst result = {\n  conversation_id: webhookData.conversation_id,\n  bot_id: webhookData.bot_id,\n  content: webhookData.content,\n  message_id: webhookData.message_id,\n  score: scoreResult.score || 0,\n  action: scoreResult.action || 'continue',\n  signals: scoreResult.signals || [],\n  sentiment: scoreResult.sentiment || 'neutral',\n  classification: scoreResult.classification || { type: 'question' },\n  thresholds: scoreResult.thresholds || { immediate: 80, offer: 50 },\n  decline_message: scoreResult.decline_message || null,\n  reason: scoreResult.reason || null\n};\n\n// Determine route based on action from API\nlet route = 'ai_response';\nif (result.action === 'skip') route = 'skip_handoff';\nelse if (result.action === 'handoff_accepted') route = 'handoff_accepted';\nelse if (result.action === 'handoff_declined') route = 'handoff_declined';\nelse if (result.action === 'handoff_immediate') route = 'handoff_immediate';\nelse if (result.action === 'handoff_offer') route = 'handoff_offer';\nelse if (result.classification.type === 'filler') route = 'filler_response';\nelse if (result.classification.type === 'greeting') route = 'greeting_response';\nelse if (result.classification.type === 'farewell') route = 'farewell_response';\n\nresult.route = route;\nconsole.log(`[SmartRouter] Route: ${route}, Score: ${result.score}, Action: ${result.action}`);\nreturn [{ json: result }];"
+      },
+      "id": "919a0fd1-85a5-4fce-adf2-0176f11e9be7",
+      "name": "Smart Router",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -240,
+        112
+      ]
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "={{ $('Smart Router').item.json.content }}",
+        "options": {
+          "systemMessage": "Anda adalah asisten AI customer service yang ramah untuk toko online fashion.\n\nATURAN:\n1. SELALU gunakan tool Knowledge Base untuk mencari info sebelum menjawab\n2. Panggil customer dengan 'Kak', gunakan bahasa casual tapi sopan\n3. Jika tidak yakin atau kompleks, AWALI dengan [HANDOFF]\n4. Jawab dalam Bahasa Indonesia, singkat dan to the point",
+          "maxIterations": 5,
+          "returnIntermediateSteps": false
+        }
+      },
+      "id": "3ced4cc3-a7c5-410b-a17e-2cec610cefce",
+      "name": "AI Agent",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 2,
+      "position": [
+        160,
+        496
+      ],
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "id": "51989e56-438c-42b6-9032-2a97e2f9e6d6",
+      "name": "Google Gemini Chat Model",
+      "type": "@n8n/n8n-nodes-langchain.lmChatGoogleGemini",
+      "typeVersion": 1,
+      "position": [
+        48,
+        704
+      ]
+    },
+    {
+      "parameters": {
+        "sessionIdType": "customKey",
+        "sessionKey": "={{ $('Smart Router').item.json.conversation_id }}",
+        "contextWindowLength": 10
+      },
+      "id": "ef4e721d-f71f-43af-8ede-d77082af9858",
+      "name": "Window Buffer Memory",
+      "type": "@n8n/n8n-nodes-langchain.memoryBufferWindow",
+      "typeVersion": 1.3,
+      "position": [
+        160,
+        704
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "retrieve-as-tool",
+        "toolDescription": "Cari informasi dari knowledge base toko. Gunakan untuk menjawab pertanyaan tentang produk, harga, promo, cara order, pengiriman, garansi.",
+        "options": {}
+      },
+      "id": "cff2a8b8-91a3-499b-9d5a-b8ee43863449",
+      "name": "Knowledge Base",
+      "type": "@n8n/n8n-nodes-langchain.vectorStorePGVector",
+      "typeVersion": 1.3,
+      "position": [
+        288,
+        704
+      ]
+    },
+    {
+      "parameters": {},
+      "id": "91bdb1b3-61d8-4051-9171-03e86a0f0cdb",
+      "name": "Embeddings Google Gemini",
+      "type": "@n8n/n8n-nodes-langchain.embeddingsGoogleGemini",
+      "typeVersion": 1,
+      "position": [
+        288,
+        896
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const output = $input.first().json.output || '';\nconst originalData = $('Smart Router').first().json;\nconst aiHandoff = output.startsWith('[HANDOFF]');\nconst cleanOutput = aiHandoff ? output.replace('[HANDOFF]', '').trim() : output;\n\nreturn [{\n  json: {\n    conversation_id: originalData.conversation_id,\n    bot_id: originalData.bot_id,\n    output: cleanOutput,\n    aiHandoff,\n    originalScore: originalData.score\n  }\n}];"
+      },
+      "id": "cb8971ad-8078-420a-98a8-b2d2af9f846d",
+      "name": "Process AI Output",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        368,
+        496
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "combinator": "and",
+          "conditions": [
+            {
+              "leftValue": "={{ $json.aiHandoff }}",
+              "operator": {
+                "operation": "equals",
+                "type": "boolean"
+              },
+              "rightValue": true
+            }
+          ],
+          "options": {
+            "version": 2
+          }
+        },
+        "options": {}
+      },
+      "id": "6c55dd0b-12bd-406b-9aa9-1caf7c96a72c",
+      "name": "AI Requested Handoff?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        560,
+        496
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://api:8080/v1/internal/initiate-handoff",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Internal-Key",
+              "value": "={{ $env.INTERNAL_API_KEY }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"conversation_id\": \"{{ $json.conversation_id }}\",\n  \"bot_id\": \"{{ $json.bot_id }}\",\n  \"trigger_type\": \"ai_flagged\",\n  \"score\": 80\n}",
+        "options": {}
+      },
+      "id": "432c1960-c0e4-40c0-b62a-c4d744a6eb82",
+      "name": "Initiate Handoff (AI)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        768,
+        416
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://api:8080/v1/internal/ai-response",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Internal-Key",
+              "value": "={{ $env.INTERNAL_API_KEY }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"conversation_id\": \"{{ $('Process AI Output').item.json.conversation_id }}\",\n  \"content\": {{ JSON.stringify($('Process AI Output').item.json.output) }},\n  \"sender_type\": \"bot\"\n}",
+        "options": {}
+      },
+      "id": "64ac7a66-c623-4705-9781-8b128321967e",
+      "name": "Send Response + Handoff",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        960,
+        416
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={ \"success\": true, \"handoff\": true, \"reason\": \"ai_flagged\" }",
+        "options": {}
+      },
+      "id": "3cabe172-b9da-4588-9338-dc5b20b0348c",
+      "name": "Respond AI Handoff",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        1168,
+        416
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://api:8080/v1/internal/ai-response",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Internal-Key",
+              "value": "={{ $env.INTERNAL_API_KEY }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"conversation_id\": \"{{ $json.conversation_id }}\",\n  \"content\": {{ JSON.stringify($json.output) }},\n  \"sender_type\": \"bot\"\n}",
+        "options": {}
+      },
+      "id": "3050e381-1b36-404c-a078-cdc6edc0d5fc",
+      "name": "Send AI Response",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        768,
+        576
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={ \"success\": true, \"ai_responded\": true }",
+        "options": {}
+      },
+      "id": "c0c3a830-a602-49cd-a2f4-2dfdf38e63a1",
+      "name": "Respond OK",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        960,
+        576
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://api:8080/v1/internal/ai-response",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Internal-Key",
+              "value": "={{ $env.INTERNAL_API_KEY }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"conversation_id\": \"{{ $('Smart Router').item.json.conversation_id }}\",\n  \"content\": \"Mohon maaf, sistem kami sedang mengalami gangguan teknis. Tim kami akan segera membantu Anda.\",\n  \"sender_type\": \"bot\"\n}",
+        "options": {}
+      },
+      "id": "fa6eb542-e625-4b56-b9c4-30e8dcd41175",
+      "name": "Send Error Message",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        368,
+        656
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={ \"success\": false, \"error\": \"ai_failed\" }",
+        "options": {}
+      },
+      "id": "aab46cab-c671-4e0e-95bd-6d863e9a4484",
+      "name": "Respond Error",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        560,
+        656
+      ]
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Chat Webhook": {
+      "main": [
+        [
+          {
+            "node": "Has Content?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Has Content?": {
+      "main": [
+        [
+          {
+            "node": "Calculate Handoff Score",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Respond Skip Empty",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Calculate Handoff Score": {
+      "main": [
+        [
+          {
+            "node": "Smart Router",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Smart Router": {
+      "main": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI Agent": {
+      "main": [
+        [
+          {
+            "node": "Process AI Output",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Send Error Message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Google Gemini Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Window Buffer Memory": {
+      "ai_memory": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_memory",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Knowledge Base": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Embeddings Google Gemini": {
+      "ai_embedding": [
+        [
+          {
+            "node": "Knowledge Base",
+            "type": "ai_embedding",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Process AI Output": {
+      "main": [
+        [
+          {
+            "node": "AI Requested Handoff?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI Requested Handoff?": {
+      "main": [
+        [
+          {
+            "node": "Initiate Handoff (AI)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Send AI Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Initiate Handoff (AI)": {
+      "main": [
+        [
+          {
+            "node": "Send Response + Handoff",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send Response + Handoff": {
+      "main": [
+        [
+          {
+            "node": "Respond AI Handoff",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send AI Response": {
+      "main": [
+        [
+          {
+            "node": "Respond OK",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send Error Message": {
+      "main": [
+        [
+          {
+            "node": "Respond Error",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "availableInMCP": false
+  },
+  "versionId": "9057cc67-f98c-4d17-9bf0-32ed73890f19",
+  "meta": {
+    "instanceId": "e5f0b8ab5f48574996742ddce0696153277d37ed4832c17c669bfe6645d2e5bb"
+  },
+  "id": "KSU82K2m0tRSB7Gc4u9qH",
+  "tags": [
+    {
+      "name": "chat",
+      "id": "BHL6RkR2PyGm4uYE",
+      "updatedAt": "2026-02-14T06:53:12.845Z",
+      "createdAt": "2026-02-14T06:53:12.845Z"
+    },
+    {
+      "name": "phase2",
+      "id": "0DbqLIBkWjbFVFip",
+      "updatedAt": "2026-02-14T06:53:12.696Z",
+      "createdAt": "2026-02-14T06:53:12.696Z"
+    }
+  ]
+}

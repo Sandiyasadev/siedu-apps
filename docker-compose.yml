@@ -1,0 +1,90 @@
+services:
+  # ============================================
+  # Redis (Cache & Rate Limiting)
+  # ============================================
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    mem_limit: 64m
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # ============================================
+  # API Backend (Production Build)
+  # ============================================
+  api:
+    build:
+      context: ./apps/api
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    mem_limit: 512m
+    environment:
+      PORT: 8080
+      NODE_ENV: ${NODE_ENV:-production}
+      DATABASE_URL: ${DATABASE_URL}
+      REDIS_URL: redis://redis:6379
+      MINIO_ENDPOINT: ${MINIO_ENDPOINT:-s3.ap-southeast-3.amazonaws.com}
+      MINIO_PORT: ${MINIO_PORT:-443}
+      MINIO_USE_SSL: ${MINIO_USE_SSL:-true}
+      MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY}
+      MINIO_SECRET_KEY: ${MINIO_SECRET_KEY}
+      MINIO_BUCKET: ${MINIO_BUCKET:-chat-backend-storage}
+      AWS_REGION: ${AWS_REGION:-ap-southeast-3}
+      JWT_SECRET: ${JWT_SECRET}
+      JWT_EXPIRES_IN: ${JWT_EXPIRES_IN:-7d}
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY}
+      N8N_WEBHOOK_BASE: ${N8N_WEBHOOK_BASE:-http://n8n:5678/webhook}
+      CORS_ORIGIN: ${CORS_ORIGIN}
+      PUBLIC_API_URL: ${PUBLIC_API_URL}
+    ports:
+      - "${API_PORT:-8080}:8080"
+    depends_on:
+      redis:
+        condition: service_healthy
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # ============================================
+  # n8n Automation Engine
+  # ============================================
+  n8n:
+    image: n8nio/n8n:latest
+    restart: unless-stopped
+    mem_limit: 1024m
+    environment:
+      - GENERIC_TIMEZONE=Asia/Jakarta
+      - TZ=Asia/Jakarta
+      - N8N_ENCRYPTION_KEY=${N8N_ENCRYPTION_KEY}
+      - N8N_USER_MANAGEMENT_DISABLED=true
+      - WEBHOOK_URL=${N8N_PUBLIC_URL:-https://n8n.siedu.web.id}/
+      - INTERNAL_API_KEY=${INTERNAL_API_KEY}
+      - API_BASE_URL=http://api:8080
+    ports:
+      - "5678:5678"
+    volumes:
+      - n8n_data:/home/node/.n8n
+    depends_on:
+      redis:
+        condition: service_healthy
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+volumes:
+  redis_data:
+  n8n_data:
