@@ -5,9 +5,8 @@ Panduan ini untuk menjalankan aplikasi di **Local Laptop** atau **GitHub Codespa
 ## 1. Persiapan
 
 Pastikan Anda memiliki:
-- Node.js v18+
 - Docker & Docker Compose
-- (Opsional) `npx` untuk menjalankan tunnel
+- Node.js v18+ (Opsional jika pakai Docker)
 
 ## 2. Menjalankan Aplikasi
 
@@ -17,12 +16,16 @@ Di root folder `siedu/`:
     ```bash
     cp .env.example .env
     ```
-    *(Tidak perlu diubah jika hanya untuk testing lokal)*
 
 2.  **Start Development Server:**
     ```bash
+    # Cara 1: Pakai Script (Disarankan)
     npm run dev
+
+    # Cara 2: Manual Docker Compose
+    docker compose -f docker-compose.dev.yml up -d
     ```
+
     Ini akan menjalankan:
     - PostgreSQL (Port 5432)
     - Redis (Port 6379)
