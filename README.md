@@ -6,10 +6,10 @@ Monorepo untuk API backend dan Dashboard frontend.
 
 ```bash
 # 1. Copy env
-cp .env.example .env
+cp .env.example .env #ini 
 
 # 2. Jalankan semua (DB + Redis + MinIO + API + Dashboard)
-npm run dev
+npm run dev jalankan
 
 # 3. Buka browser
 # Dashboard: http://localhost:5173
