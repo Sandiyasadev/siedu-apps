@@ -149,23 +149,22 @@ router.post('/update-state', asyncHandler(async (req, res) => {
         return res.status(400).json({ error: 'conversation_id and status are required' });
     }
 
-    const validStatuses = ['open', 'handoff', 'closed', 'ai_active', 'human_active', 'waiting_human'];
+    // V1 Simplified: only bot/human
+    const validStatuses = ['bot', 'human'];
     if (!validStatuses.includes(status)) {
-        return res.status(400).json({ error: 'Invalid status' });
+        return res.status(400).json({ error: 'Invalid status. Use: bot, human' });
     }
 
-    let sql = 'UPDATE conversations SET status = $1';
-    const params = [status];
+    let sql;
+    const params = [];
 
-    if (status === 'handoff' || status === 'human_active') {
-        sql += ', handoff_at = NOW(), handoff_reason = $2 WHERE id = $3';
+    if (status === 'human') {
+        sql = `UPDATE conversations SET status = 'human', handoff_at = NOW(), handoff_reason = $1, unanswered_count = 0 WHERE id = $2 RETURNING *`;
         params.push(handoff_reason || 'system', conversation_id);
     } else {
-        sql += ' WHERE id = $2';
+        sql = `UPDATE conversations SET status = 'bot', unanswered_count = 0 WHERE id = $1 RETURNING *`;
         params.push(conversation_id);
     }
-
-    sql += ' RETURNING *';
 
     const result = await query(sql, params);
 
@@ -187,9 +186,9 @@ router.get('/conversation-state/:id', asyncHandler(async (req, res) => {
     `, [req.params.id]);
 
     if (result.rows.length === 0) {
-        // Return default state for new conversations
+        // Return default state for new conversations (V1: bot is default)
         return res.json({
-            status: 'open',
+            status: 'bot',
             ai_active: true
         });
     }
@@ -197,9 +196,17 @@ router.get('/conversation-state/:id', asyncHandler(async (req, res) => {
     const conv = result.rows[0];
     res.json({
         ...conv,
-        ai_active: conv.status === 'open' || conv.status === 'ai_active'
+        ai_active: conv.status === 'bot'
     });
 }));
+
+// ╔══════════════════════════════════════════════════════════════╗
+// ║  PHASE 2 — NOT ACTIVE IN V1                                ║
+// ║  Endpoints below implement advanced handoff with scoring,   ║
+// ║  queue management, and CS availability.                     ║
+// ║  V1 only uses simple bot/human toggle (see hooks.js).       ║
+// ║  Keep for future use, do NOT call from n8n in V1.           ║
+// ╚══════════════════════════════════════════════════════════════╝
 
 // ============================================
 // POST /v1/internal/initiate-handoff

@@ -6,6 +6,7 @@ const asyncHandler = require('../middleware/asyncHandler');
 const { emitNewMessage, emitStatusChange } = require('../services/socketService');
 const cache = require('../utils/cache');
 const { storeOutboundMedia, buildMediaContent, getWhatsAppMediaType } = require('../services/mediaService');
+const { sendToChannel } = require('../services/channelService');
 
 // Multer config: memory storage, 20MB limit
 const upload = multer({
@@ -97,23 +98,21 @@ router.get('/stats', asyncHandler(async (req, res) => {
         `, [workspaceId, today])
     ]);
 
-    // Calculate totals
+    // Calculate totals (V1: only bot/human statuses)
     const totalConversations = statusCounts.rows.reduce((sum, r) => sum + parseInt(r.count), 0);
-    const openCount = statusCounts.rows.find(r => r.status === 'open')?.count || 0;
-    const handoffCount = statusCounts.rows.find(r => r.status === 'handoff')?.count || 0;
-    const closedCount = statusCounts.rows.find(r => r.status === 'closed')?.count || 0;
+    const botCount = statusCounts.rows.find(r => r.status === 'bot')?.count || 0;
+    const humanCount = statusCounts.rows.find(r => r.status === 'human')?.count || 0;
 
-    // AI resolution rate = closed without handoff (approximate)
+    // AI resolution rate = bot-handled / total (approximate)
     const aiResolutionRate = totalConversations > 0
-        ? Math.round((closedCount / totalConversations) * 100)
+        ? Math.round((parseInt(botCount) / totalConversations) * 100)
         : 0;
 
     const stats = {
         totalConversations,
         conversationsByStatus: {
-            open: parseInt(openCount),
-            handoff: parseInt(handoffCount),
-            closed: parseInt(closedCount)
+            bot: parseInt(botCount),
+            human: parseInt(humanCount)
         },
         conversationsByChannel: channelCounts.rows.reduce((acc, r) => {
             acc[r.channel_type] = parseInt(r.count);
@@ -565,7 +564,6 @@ router.post('/:id/messages', upload.single('file'), asyncHandler(async (req, res
     );
 
     // Send to external channel (Telegram, WhatsApp, etc.)
-    const { sendToChannel } = require('../services/channelService');
     // For media: pass caption (original text) + media object
     // For text: pass text only
     const channelText = file ? (content.trim() || '') : messageContent;

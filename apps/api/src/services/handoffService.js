@@ -1,7 +1,11 @@
 /**
  * Handoff Service
  * Manages conversation handoff from bot to human agents
- * Phase 2 - Week 2
+ *
+ * ⚠️  PHASE 2 — NOT ACTIVE IN V1
+ * V1 uses simple bot/human toggle in hooks.js.
+ * This service implements advanced scoring, queue, and CS availability
+ * for future use. Do NOT call from V1 n8n workflows.
  */
 
 const { query, getClient } = require('../utils/db');
@@ -55,7 +59,7 @@ async function initiateHandoff(params) {
         const conversation = convResult.rows[0];
 
         // 2. Check if already in handoff
-        if (conversation.handoff_status === 'handoff_pending' || 
+        if (conversation.handoff_status === 'handoff_pending' ||
             conversation.handoff_status === 'human_active') {
             return {
                 success: false,

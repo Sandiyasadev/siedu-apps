@@ -130,7 +130,7 @@ CREATE TABLE IF NOT EXISTS conversations (
     channel_type VARCHAR(50) NOT NULL,
     external_thread_id VARCHAR(255),
     contact_id UUID REFERENCES contacts(id) ON DELETE SET NULL,
-    status VARCHAR(50) DEFAULT 'open', -- open, handoff, closed
+    status VARCHAR(50) DEFAULT 'bot', -- V1: bot, human
     -- Handoff fields
     handoff_reason TEXT,
     handoff_at TIMESTAMPTZ,
