@@ -21,7 +21,7 @@ npm run dev jalankan
 
 ```bash
 # Di laptop (terminal terpisah):
-npx localtunnel --port 5678
+npx localtunnel --port 5678  #
 
 # Copy URL yang muncul (misal: https://xxxxx.loca.lt)
 # Paste di .env:
