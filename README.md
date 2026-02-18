@@ -1,5 +1,5 @@
 # Siedu — AI Customer Service Platform
-
+deploy
 Monorepo untuk API backend dan Dashboard frontend.
 
 ## Quick Start (Testing / Codespace)
