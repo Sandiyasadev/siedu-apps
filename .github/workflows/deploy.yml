@@ -24,6 +24,7 @@ jobs:
       - name: Deploy via SSH (Tailscale)
         uses: appleboy/ssh-action@v1
         with:
+          debug: true
           host: ${{ secrets.VPS_HOST }}
           username: ${{ secrets.VPS_USER }}
           key: ${{ secrets.VPS_SSH_KEY }}
@@ -77,7 +78,7 @@ jobs:
 
       - name: Install dependencies
         working-directory: apps/dashboard
-        run: npm ci
+        run: npm install
 
       - name: Build
         working-directory: apps/dashboard
