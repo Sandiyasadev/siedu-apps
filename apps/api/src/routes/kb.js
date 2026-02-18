@@ -4,7 +4,7 @@ const { v4: uuidv4 } = require('uuid');
 const { query } = require('../utils/db');
 const { uploadFile, getPresignedUploadUrl, deleteFile } = require('../utils/storage');
 const { authenticate } = require('../middleware/auth');
-const { asyncHandler } = require('../middleware/errorHandler');
+const asyncHandler = require('../middleware/asyncHandler');
 const { uploadLimiter } = require('../middleware/rateLimiter');
 
 const router = express.Router();

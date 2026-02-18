@@ -2,7 +2,7 @@ const express = require('express');
 const bcrypt = require('bcryptjs');
 const { query } = require('../utils/db');
 const { generateToken } = require('../middleware/auth');
-const { asyncHandler } = require('../middleware/errorHandler');
+const asyncHandler = require('../middleware/asyncHandler');
 const { authLimiter } = require('../middleware/rateLimiter');
 
 const router = express.Router();

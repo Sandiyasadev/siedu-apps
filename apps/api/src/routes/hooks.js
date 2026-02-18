@@ -1,7 +1,7 @@
 const express = require('express');
 const crypto = require('crypto');
 const { query } = require('../utils/db');
-const { asyncHandler } = require('../middleware/errorHandler');
+const asyncHandler = require('../middleware/asyncHandler');
 const { webhookLimiter } = require('../middleware/rateLimiter');
 const { findOrCreateContact, linkConversationToContact } = require('../services/contactService');
 const { emitNewMessage, emitNewConversation, emitMessageStatus } = require('../services/socketService');

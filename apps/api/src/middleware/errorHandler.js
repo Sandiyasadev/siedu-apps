@@ -29,11 +29,6 @@ const errorHandler = (err, req, res, next) => {
     });
 };
 
-// Async handler wrapper
-const asyncHandler = (fn) => (req, res, next) => {
-    Promise.resolve(fn(req, res, next)).catch(next);
-};
-
 // Custom error class
 class AppError extends Error {
     constructor(message, status = 500) {
@@ -45,6 +40,5 @@ class AppError extends Error {
 
 module.exports = {
     errorHandler,
-    asyncHandler,
     AppError
 };

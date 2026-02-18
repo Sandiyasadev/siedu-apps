@@ -1,7 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const { query } = require('../utils/db');
-const { asyncHandler } = require('../middleware/errorHandler');
+const asyncHandler = require('../middleware/asyncHandler');
 const { requireRole } = require('../middleware/auth');
 
 // ============================================
