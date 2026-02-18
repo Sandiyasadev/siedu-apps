@@ -68,10 +68,10 @@ services:
         max-file: "3"
 
   # ============================================
-  # n8n Automation Engine
+  # n8n Automation Engines
   # ============================================
   n8n:
-    image: n8nio/n8n:2.7.4.
+    image: n8nio/n8n:2.7.5
     restart: unless-stopped
     mem_limit: 1024m
     environment:
