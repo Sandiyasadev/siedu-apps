@@ -50,11 +50,16 @@ const authLimiter = createLimiter({
     message: { error: 'Too many login attempts, please try again later.' },
 });
 
-// Webhook rate limiter (more lenient for integrations)
+// Webhook rate limiter (per channel path, lenient for integrations)
 const webhookLimiter = createLimiter({
     windowMs: 1 * 60 * 1000, // 1 minute
-    max: 60, // 60 requests per minute
+    max: 300, // 300 requests per minute per channel
     message: { error: 'Webhook rate limit exceeded.' },
+    keyGenerator: (req) => {
+        // Key by channel path (e.g. "/v1/hooks/whatsapp/669bb048")
+        // so each bot/channel gets its own rate limit bucket
+        return req.originalUrl || req.path;
+    },
 });
 
 // Upload rate limiter

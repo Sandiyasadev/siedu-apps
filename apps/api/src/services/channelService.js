@@ -150,7 +150,7 @@ async function sendWhatsApp(phoneNumber, text, config, media = null) {
         return { success: false, error: 'WhatsApp credentials not configured' };
     }
 
-    const url = `https://graph.facebook.com/v18.0/${phone_number_id}/messages`;
+    const url = `https://graph.facebook.com/v22.0/${phone_number_id}/messages`;
     let payload;
 
     if (media && media.buffer) {

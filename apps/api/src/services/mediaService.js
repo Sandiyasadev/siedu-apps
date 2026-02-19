@@ -31,7 +31,7 @@ async function downloadAndStoreMedia(mediaId, mediaType, accessToken, extraMeta 
 
     try {
         // Step 1: Get download URL from Meta
-        const metaUrl = `https://graph.facebook.com/v18.0/${mediaId}`;
+        const metaUrl = `https://graph.facebook.com/v22.0/${mediaId}`;
         const urlResponse = await axios.get(metaUrl, {
             headers: { 'Authorization': `Bearer ${accessToken}` }
         });
@@ -182,7 +182,7 @@ function parseMediaContent(content) {
 async function uploadToMeta(buffer, mimeType, config) {
     const { phone_number_id, access_token } = config;
 
-    const url = `https://graph.facebook.com/v18.0/${phone_number_id}/media`;
+    const url = `https://graph.facebook.com/v22.0/${phone_number_id}/media`;
 
     const form = new FormData();
     form.append('messaging_product', 'whatsapp');
