@@ -93,7 +93,7 @@
         },
         {
             "parameters": {
-                "jsCode": "const webhook = $('Chat Webhook').first().json;\nconst config = $input.first().json;\n\nreturn [{\n  json: {\n    conversation_id: webhook.conversation_id,\n    bot_id: webhook.bot_id,\n    text: webhook.text,\n    channel_type: webhook.channel_type,\n    system_prompt: config.system_prompt || 'You are a helpful customer service assistant.',\n    bot_name: config.name || 'AI Assistant'\n  }\n}];"
+                "jsCode": "const webhook = $('Chat Webhook').first().json;\nconst config = $input.first().json;\n\nreturn [{\n  json: {\n    conversation_id: webhook.conversation_id,\n    bot_id: webhook.bot_id,\n    text: webhook.text,\n    channel_type: webhook.channel_type,\n    system_prompt: config.system_prompt || 'You are a helpful customer service assistant.',\n    bot_name: config.name || 'AI Assistant',\n    metadata_filter: { bot_id: webhook.bot_id }\n  }\n}];"
             },
             "id": "prepare-context",
             "name": "Prepare Context",
@@ -156,7 +156,9 @@
             "parameters": {
                 "mode": "retrieve-as-tool",
                 "toolDescription": "Search the knowledge base for product info, pricing, policies, FAQs, shipping, returns, and any other business information. Always use this tool before answering customer questions.",
-                "options": {}
+                "options": {
+                    "metadata": "={{ JSON.stringify($('Prepare Context').item.json.metadata_filter) }}"
+                }
             },
             "id": "kb-tool",
             "name": "Knowledge Base",

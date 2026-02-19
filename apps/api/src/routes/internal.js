@@ -552,4 +552,87 @@ router.get('/bot-config/:botId', asyncHandler(async (req, res) => {
     });
 }));
 
+// ============================================
+// PATCH /v1/internal/kb-status
+// Update KB source status after n8n ingestion
+// ============================================
+router.patch('/kb-status', asyncHandler(async (req, res) => {
+    const { source_id, status, chunk_count, error_message } = req.body;
+
+    if (!source_id || !status) {
+        return res.status(400).json({ error: 'source_id and status are required' });
+    }
+
+    const validStatuses = ['processing', 'indexed', 'error', 'deleted'];
+    if (!validStatuses.includes(status)) {
+        return res.status(400).json({ error: `Invalid status. Use: ${validStatuses.join(', ')}` });
+    }
+
+    const updates = ['status = $1'];
+    const params = [status, source_id];
+    let paramIdx = 3;
+
+    if (status === 'indexed') {
+        updates.push(`indexed_at = NOW()`);
+        if (chunk_count !== undefined) {
+            updates.push(`chunk_count = $${paramIdx++}`);
+            params.splice(paramIdx - 2, 0, chunk_count);
+        }
+    }
+
+    if (status === 'error' && error_message) {
+        updates.push(`error_message = $${paramIdx++}`);
+        params.splice(paramIdx - 2, 0, error_message);
+    }
+
+    updates.push('updated_at = NOW()');
+
+    const result = await query(
+        `UPDATE kb_sources SET ${updates.join(', ')} WHERE id = $2 RETURNING *`,
+        params
+    );
+
+    if (result.rows.length === 0) {
+        return res.status(404).json({ error: 'KB source not found' });
+    }
+
+    console.log(`[KB] Status updated: ${source_id} → ${status}`);
+    res.json({ success: true, source: result.rows[0] });
+}));
+
+// ============================================
+// GET /v1/internal/kb-file/:sourceId
+// Stream KB file from MinIO for n8n to download
+// ============================================
+router.get('/kb-file/:sourceId', asyncHandler(async (req, res) => {
+    const { getFileStream, getFileStat } = require('../utils/storage');
+    const mime = require('mime-types');
+
+    const sourceResult = await query(
+        'SELECT object_key, original_filename, content_type FROM kb_sources WHERE id = $1',
+        [req.params.sourceId]
+    );
+
+    if (sourceResult.rows.length === 0) {
+        return res.status(404).json({ error: 'KB source not found' });
+    }
+
+    const source = sourceResult.rows[0];
+
+    try {
+        const stat = await getFileStat(source.object_key);
+        const contentType = source.content_type || mime.lookup(source.original_filename) || 'application/octet-stream';
+
+        res.setHeader('Content-Type', contentType);
+        res.setHeader('Content-Length', stat.size);
+        res.setHeader('Content-Disposition', `attachment; filename="${source.original_filename}"`);
+
+        const stream = await getFileStream(source.object_key);
+        stream.pipe(res);
+    } catch (error) {
+        console.error(`[KB] Failed to stream file ${source.object_key}:`, error.message);
+        res.status(404).json({ error: 'File not found in storage' });
+    }
+}));
+
 module.exports = router;

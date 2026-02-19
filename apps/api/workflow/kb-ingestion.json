@@ -1,0 +1,362 @@
+{
+    "name": "KB - Ingestion Pipeline",
+    "nodes": [
+        {
+            "parameters": {
+                "httpMethod": "POST",
+                "path": "kb-upload",
+                "responseMode": "responseNode",
+                "options": {}
+            },
+            "id": "webhook-entry",
+            "name": "KB Upload Webhook",
+            "type": "n8n-nodes-base.webhook",
+            "typeVersion": 2,
+            "position": [
+                -800,
+                300
+            ],
+            "webhookId": "kb-upload"
+        },
+        {
+            "parameters": {
+                "method": "GET",
+                "url": "={{ 'http://api:8080/v1/internal/kb-file/' + $json.source_id }}",
+                "sendHeaders": true,
+                "headerParameters": {
+                    "parameters": [
+                        {
+                            "name": "X-Internal-Key",
+                            "value": "={{ $env.INTERNAL_API_KEY }}"
+                        }
+                    ]
+                },
+                "options": {
+                    "response": {
+                        "response": {
+                            "fullResponse": true,
+                            "responseFormat": "file"
+                        }
+                    },
+                    "timeout": 30000
+                }
+            },
+            "id": "download-file",
+            "name": "Download File from API",
+            "type": "n8n-nodes-base.httpRequest",
+            "typeVersion": 4.2,
+            "position": [
+                -580,
+                300
+            ]
+        },
+        {
+            "parameters": {
+                "operation": "text",
+                "options": {}
+            },
+            "id": "extract-text",
+            "name": "Extract Document Text",
+            "type": "n8n-nodes-base.extractFromFile",
+            "typeVersion": 1,
+            "position": [
+                -360,
+                300
+            ]
+        },
+        {
+            "parameters": {
+                "jsCode": "const webhook = $('KB Upload Webhook').first().json;\nconst extracted = $input.first().json;\n\n// Get text content\nconst text = extracted.data || extracted.text || '';\n\nif (!text || text.trim().length === 0) {\n  throw new Error('No text content extracted from file');\n}\n\nreturn [{\n  json: {\n    text: text.trim(),\n    source_id: webhook.source_id,\n    bot_id: webhook.bot_id,\n    filename: webhook.filename,\n    kb_type: webhook.kb_type || 'facts',\n    category: webhook.category || 'general',\n    language: webhook.language || 'id'\n  }\n}];"
+            },
+            "id": "prepare-text",
+            "name": "Prepare Text",
+            "type": "n8n-nodes-base.code",
+            "typeVersion": 2,
+            "position": [
+                -140,
+                300
+            ]
+        },
+        {
+            "parameters": {
+                "mode": "insert",
+                "tableName": "n8n_vectors",
+                "options": {}
+            },
+            "id": "vector-store",
+            "name": "PGVector Store",
+            "type": "@n8n/n8n-nodes-langchain.vectorStorePGVector",
+            "typeVersion": 1.3,
+            "position": [
+                80,
+                300
+            ]
+        },
+        {
+            "parameters": {
+                "chunkSize": 1000,
+                "chunkOverlap": 200,
+                "options": {}
+            },
+            "id": "text-splitter",
+            "name": "Recursive Text Splitter",
+            "type": "@n8n/n8n-nodes-langchain.textSplitterRecursiveCharacterTextSplitter",
+            "typeVersion": 1,
+            "position": [
+                -40,
+                520
+            ]
+        },
+        {
+            "parameters": {},
+            "id": "embeddings",
+            "name": "Embeddings Google Gemini",
+            "type": "@n8n/n8n-nodes-langchain.embeddingsGoogleGemini",
+            "typeVersion": 1,
+            "position": [
+                80,
+                520
+            ]
+        },
+        {
+            "parameters": {
+                "jsCode": "const webhook = $('KB Upload Webhook').first().json;\n\nreturn [{\n  json: {\n    pageContent: $('Prepare Text').first().json.text,\n    metadata: {\n      bot_id: webhook.bot_id,\n      source_id: webhook.source_id,\n      filename: webhook.filename,\n      kb_type: webhook.kb_type || 'facts',\n      category: webhook.category || 'general',\n      language: webhook.language || 'id'\n    }\n  }\n}];"
+            },
+            "id": "build-document",
+            "name": "Build Document with Metadata",
+            "type": "n8n-nodes-base.code",
+            "typeVersion": 2,
+            "position": [
+                -140,
+                480
+            ]
+        },
+        {
+            "parameters": {
+                "method": "PATCH",
+                "url": "http://api:8080/v1/internal/kb-status",
+                "sendHeaders": true,
+                "headerParameters": {
+                    "parameters": [
+                        {
+                            "name": "X-Internal-Key",
+                            "value": "={{ $env.INTERNAL_API_KEY }}"
+                        },
+                        {
+                            "name": "Content-Type",
+                            "value": "application/json"
+                        }
+                    ]
+                },
+                "sendBody": true,
+                "specifyBody": "json",
+                "jsonBody": "={\n  \"source_id\": \"{{ $('KB Upload Webhook').item.json.source_id }}\",\n  \"status\": \"indexed\",\n  \"chunk_count\": {{ $json.length || 1 }}\n}",
+                "options": {}
+            },
+            "id": "update-status-ok",
+            "name": "Update Status: Indexed",
+            "type": "n8n-nodes-base.httpRequest",
+            "typeVersion": 4.2,
+            "position": [
+                300,
+                300
+            ]
+        },
+        {
+            "parameters": {
+                "respondWith": "json",
+                "responseBody": "={ \"success\": true, \"status\": \"indexed\" }",
+                "options": {}
+            },
+            "id": "respond-ok",
+            "name": "Respond OK",
+            "type": "n8n-nodes-base.respondToWebhook",
+            "typeVersion": 1.1,
+            "position": [
+                520,
+                300
+            ]
+        },
+        {
+            "parameters": {
+                "method": "PATCH",
+                "url": "http://api:8080/v1/internal/kb-status",
+                "sendHeaders": true,
+                "headerParameters": {
+                    "parameters": [
+                        {
+                            "name": "X-Internal-Key",
+                            "value": "={{ $env.INTERNAL_API_KEY }}"
+                        },
+                        {
+                            "name": "Content-Type",
+                            "value": "application/json"
+                        }
+                    ]
+                },
+                "sendBody": true,
+                "specifyBody": "json",
+                "jsonBody": "={\n  \"source_id\": \"{{ $('KB Upload Webhook').item.json.source_id }}\",\n  \"status\": \"error\",\n  \"error_message\": \"{{ $json.message || 'Unknown ingestion error' }}\"\n}",
+                "options": {}
+            },
+            "id": "update-status-error",
+            "name": "Update Status: Error",
+            "type": "n8n-nodes-base.httpRequest",
+            "typeVersion": 4.2,
+            "position": [
+                300,
+                520
+            ]
+        },
+        {
+            "parameters": {
+                "respondWith": "json",
+                "responseBody": "={ \"success\": false, \"error\": \"ingestion_failed\" }",
+                "options": {}
+            },
+            "id": "respond-error",
+            "name": "Respond Error",
+            "type": "n8n-nodes-base.respondToWebhook",
+            "typeVersion": 1.1,
+            "position": [
+                520,
+                520
+            ]
+        }
+    ],
+    "pinData": {},
+    "connections": {
+        "KB Upload Webhook": {
+            "main": [
+                [
+                    {
+                        "node": "Download File from API",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Download File from API": {
+            "main": [
+                [
+                    {
+                        "node": "Extract Document Text",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Extract Document Text": {
+            "main": [
+                [
+                    {
+                        "node": "Prepare Text",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Prepare Text": {
+            "main": [
+                [
+                    {
+                        "node": "Build Document with Metadata",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Build Document with Metadata": {
+            "main": [
+                [
+                    {
+                        "node": "PGVector Store",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "PGVector Store": {
+            "main": [
+                [
+                    {
+                        "node": "Update Status: Indexed",
+                        "type": "main",
+                        "index": 0
+                    }
+                ],
+                [
+                    {
+                        "node": "Update Status: Error",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Recursive Text Splitter": {
+            "ai_textSplitter": [
+                [
+                    {
+                        "node": "PGVector Store",
+                        "type": "ai_textSplitter",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Embeddings Google Gemini": {
+            "ai_embedding": [
+                [
+                    {
+                        "node": "PGVector Store",
+                        "type": "ai_embedding",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Update Status: Indexed": {
+            "main": [
+                [
+                    {
+                        "node": "Respond OK",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Update Status: Error": {
+            "main": [
+                [
+                    {
+                        "node": "Respond Error",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        }
+    },
+    "active": false,
+    "settings": {
+        "executionOrder": "v1"
+    },
+    "meta": {
+        "templateCredsSetupCompleted": true
+    },
+    "tags": [
+        {
+            "name": "kb"
+        },
+        {
+            "name": "ingestion"
+        }
+    ]
+}

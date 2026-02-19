@@ -116,12 +116,15 @@ router.post('/upload', uploadLimiter, upload.single('file'), asyncHandler(async 
             bot_id,
             object_key: objectKey,
             filename: req.file.originalname,
-            // New categorization fields
             kb_type: kb_type || 'facts',
             category: category || 'general',
             language: language || 'id'
         })
-    }).catch(err => console.error('n8n webhook error:', err.message));
+    })
+        .then(r => {
+            if (!r.ok) console.error(`[KB] n8n ingestion returned ${r.status} for source ${result.rows[0].id}`);
+        })
+        .catch(err => console.error(`[KB] n8n unreachable for source ${result.rows[0].id}:`, err.message));
 
     res.status(201).json({
         success: true,
