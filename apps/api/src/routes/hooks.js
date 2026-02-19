@@ -219,16 +219,25 @@ router.post('/telegram/:bot_public_id', asyncHandler(async (req, res) => {
     }
 
     // Insert user message (include telegram_update_id for idempotency)
-    const msgResult = await query(
-        `INSERT INTO messages (conversation_id, role, content, raw)
-         VALUES ($1, 'user', $2, $3)
-         RETURNING *`,
-        [conversationId, content, JSON.stringify({
-            message: message,
-            media: mediaResult || null,
-            telegram_update_id: updateId ? String(updateId) : null
-        })]
-    );
+    let msgResult;
+    try {
+        msgResult = await query(
+            `INSERT INTO messages (conversation_id, role, content, raw)
+             VALUES ($1, 'user', $2, $3)
+             RETURNING *`,
+            [conversationId, content, JSON.stringify({
+                message: message,
+                media: mediaResult || null,
+                telegram_update_id: updateId ? String(updateId) : null
+            })]
+        );
+    } catch (insertErr) {
+        if (insertErr.code === '23505') {
+            console.log(`[Telegram] Duplicate insert blocked by DB constraint — skipping`);
+            return res.status(200).json({ status: 'duplicate' });
+        }
+        throw insertErr;
+    }
 
     // Emit socket event for real-time updates
     emitNewMessage(conversationId, msgResult.rows[0], channel.workspace_id);
@@ -608,18 +617,27 @@ router.post('/whatsapp/:bot_public_id', asyncHandler(async (req, res) => {
                 }
 
                 // Insert user message (include wa_message_id for idempotency)
-                const msgResult = await query(
-                    `INSERT INTO messages (conversation_id, role, content, raw)
-                     VALUES ($1, 'user', $2, $3)
-                     RETURNING *`,
-                    [conversationId, content, JSON.stringify({
-                        message: msg,
-                        contact: waContact,
-                        metadata,
-                        media: mediaResult || null,
-                        wa_message_id: msg.id || null
-                    })]
-                );
+                let msgResult;
+                try {
+                    msgResult = await query(
+                        `INSERT INTO messages (conversation_id, role, content, raw)
+                         VALUES ($1, 'user', $2, $3)
+                         RETURNING *`,
+                        [conversationId, content, JSON.stringify({
+                            message: msg,
+                            contact: waContact,
+                            metadata,
+                            media: mediaResult || null,
+                            wa_message_id: msg.id || null
+                        })]
+                    );
+                } catch (insertErr) {
+                    if (insertErr.code === '23505') {
+                        console.log(`[WhatsApp] Duplicate insert blocked by DB constraint — skipping`);
+                        continue;
+                    }
+                    throw insertErr;
+                }
 
                 // Emit socket events for real-time updates
                 emitNewMessage(conversationId, msgResult.rows[0], channel.workspace_id);

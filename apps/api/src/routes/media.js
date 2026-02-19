@@ -19,7 +19,8 @@ router.use(authenticate);
  */
 router.get('/:year/:month/:filename', asyncHandler(async (req, res) => {
     const { year, month, filename } = req.params;
-    const objectKey = MEDIA_PREFIX + `${year}/${month}/${filename}`;
+    const pathKey = `${year}/${month}/${filename}`;       // matches what buildMediaContent stores
+    const storageKey = MEDIA_PREFIX + pathKey;             // actual key in MinIO
 
     // Verify media belongs to user's workspace
     const { query } = require('../utils/db');
@@ -29,7 +30,7 @@ router.get('/:year/:month/:filename', asyncHandler(async (req, res) => {
          JOIN bots b ON b.id = c.bot_id
          WHERE m.content LIKE $1 AND b.workspace_id = $2
          LIMIT 1`,
-        [`%${objectKey}%`, req.user.workspace_id]
+        [`%${pathKey}%`, req.user.workspace_id]
     );
 
     if (ownerCheck.rows.length === 0) {
@@ -38,7 +39,7 @@ router.get('/:year/:month/:filename', asyncHandler(async (req, res) => {
 
     try {
         // Get file metadata for content-type and size
-        const stat = await getFileStat(objectKey);
+        const stat = await getFileStat(storageKey);
         const contentType = stat.metaData?.['content-type'] || mime.lookup(filename) || 'application/octet-stream';
 
         // Set response headers
@@ -47,11 +48,11 @@ router.get('/:year/:month/:filename', asyncHandler(async (req, res) => {
         res.setHeader('Cache-Control', 'private, max-age=3600'); // Cache 1 hour
 
         // Stream the file directly to the response
-        const stream = await getFileStream(objectKey);
+        const stream = await getFileStream(storageKey);
         stream.pipe(res);
 
     } catch (error) {
-        console.error(`[Media] Failed to stream ${objectKey}:`, error.message);
+        console.error(`[Media] Failed to stream ${storageKey}:`, error.message);
         res.status(404).json({ error: 'Media not found or expired' });
     }
 }));
