@@ -28,6 +28,7 @@ const createLimiter = (options) => {
         ...options,
         standardHeaders: true,
         legacyHeaders: false,
+        passOnStoreError: true, // fail-open: allow traffic if Redis is down
         store: new RedisStore({
             sendCommand: (...args) => getRedisClient().call(...args),
             prefix: 'rl:', // rate-limit prefix in Redis

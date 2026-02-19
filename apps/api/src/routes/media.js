@@ -2,7 +2,7 @@ const express = require('express');
 const mime = require('mime-types');
 const { asyncHandler } = require('../middleware/errorHandler');
 const { authenticate } = require('../middleware/auth');
-const { getFileStream, getFileStat, MEDIA_BUCKET } = require('../utils/storage');
+const { getFileStream, getFileStat, MEDIA_PREFIX } = require('../utils/storage');
 const { parseMediaContent } = require('../services/mediaService');
 
 const router = express.Router();
@@ -19,7 +19,7 @@ router.use(authenticate);
  */
 router.get('/:year/:month/:filename', asyncHandler(async (req, res) => {
     const { year, month, filename } = req.params;
-    const objectKey = `${year}/${month}/${filename}`;
+    const objectKey = MEDIA_PREFIX + `${year}/${month}/${filename}`;
 
     // Verify media belongs to user's workspace
     const { query } = require('../utils/db');
@@ -38,7 +38,7 @@ router.get('/:year/:month/:filename', asyncHandler(async (req, res) => {
 
     try {
         // Get file metadata for content-type and size
-        const stat = await getFileStat(objectKey, MEDIA_BUCKET);
+        const stat = await getFileStat(objectKey);
         const contentType = stat.metaData?.['content-type'] || mime.lookup(filename) || 'application/octet-stream';
 
         // Set response headers
@@ -47,7 +47,7 @@ router.get('/:year/:month/:filename', asyncHandler(async (req, res) => {
         res.setHeader('Cache-Control', 'private, max-age=3600'); // Cache 1 hour
 
         // Stream the file directly to the response
-        const stream = await getFileStream(objectKey, MEDIA_BUCKET);
+        const stream = await getFileStream(objectKey);
         stream.pipe(res);
 
     } catch (error) {

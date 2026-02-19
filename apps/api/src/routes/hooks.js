@@ -493,6 +493,18 @@ router.post('/whatsapp/:bot_public_id', asyncHandler(async (req, res) => {
                 const from = msg.from; // phone number (e.g. "628123456789")
                 if (!from) continue;
 
+                // Idempotency guard: META retries webhooks on failure
+                if (msg.id) {
+                    const dup = await query(
+                        `SELECT id FROM messages WHERE raw->>'wa_message_id' = $1`,
+                        [msg.id]
+                    );
+                    if (dup.rows.length > 0) {
+                        console.log(`[WhatsApp] Duplicate wa_message_id ${msg.id} — skipping`);
+                        continue;
+                    }
+                }
+
                 // Determine content based on message type
                 let content = null;
                 let mediaResult = null;
@@ -595,7 +607,7 @@ router.post('/whatsapp/:bot_public_id', asyncHandler(async (req, res) => {
                     await linkConversationToContact(conversationId, contact.id);
                 }
 
-                // Insert user message
+                // Insert user message (include wa_message_id for idempotency)
                 const msgResult = await query(
                     `INSERT INTO messages (conversation_id, role, content, raw)
                      VALUES ($1, 'user', $2, $3)
@@ -604,7 +616,8 @@ router.post('/whatsapp/:bot_public_id', asyncHandler(async (req, res) => {
                         message: msg,
                         contact: waContact,
                         metadata,
-                        media: mediaResult || null
+                        media: mediaResult || null,
+                        wa_message_id: msg.id || null
                     })]
                 );
 

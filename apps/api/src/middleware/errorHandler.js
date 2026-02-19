@@ -6,6 +6,8 @@ const errorHandler = (err, req, res, next) => {
         method: req.method
     });
 
+    const isProd = process.env.NODE_ENV === 'production';
+
     // Validation errors
     if (err.name === 'ValidationError') {
         return res.status(400).json({
@@ -17,15 +19,18 @@ const errorHandler = (err, req, res, next) => {
     // Database errors
     if (err.code && err.code.startsWith('23')) { // PostgreSQL constraint errors
         return res.status(400).json({
-            error: 'Database constraint error',
-            message: err.message
+            error: isProd ? 'Invalid data' : 'Database constraint error',
+            ...(isProd ? {} : { message: err.message })
         });
     }
 
-    // Default error
-    res.status(err.status || 500).json({
-        error: err.message || 'Internal server error',
-        ...(process.env.NODE_ENV === 'development' && { stack: err.stack })
+    // Default error — mask internal details in production
+    const statusCode = err.status || 500;
+    res.status(statusCode).json({
+        error: (isProd && statusCode === 500)
+            ? 'Internal server error'
+            : (err.message || 'Internal server error'),
+        ...(!isProd && { stack: err.stack })
     });
 };
 
