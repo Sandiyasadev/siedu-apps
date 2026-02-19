@@ -20,40 +20,47 @@ const HANDOFF_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes
 const MAX_UNANSWERED = 3;
 
 async function shouldForwardToN8n(conversationId) {
-    const result = await query(
-        `SELECT status, last_agent_reply_at, unanswered_count 
-         FROM conversations WHERE id = $1`,
-        [conversationId]
-    );
-    const conv = result.rows[0];
-    if (!conv || conv.status === 'bot') return true;
+    try {
+        const result = await query(
+            `SELECT status, last_agent_reply_at, unanswered_count 
+             FROM conversations WHERE id = $1`,
+            [conversationId]
+        );
+        const conv = result.rows[0];
+        if (!conv || conv.status === 'bot') return true;
 
-    // Status is 'human' — check timeout conditions
-    const timeSinceAgent = conv.last_agent_reply_at
-        ? Date.now() - new Date(conv.last_agent_reply_at).getTime()
-        : Infinity;
+        // Status is 'human' — check timeout conditions
+        const timeSinceAgent = conv.last_agent_reply_at
+            ? Date.now() - new Date(conv.last_agent_reply_at).getTime()
+            : Infinity;
 
-    if (timeSinceAgent > HANDOFF_TIMEOUT_MS || (conv.unanswered_count || 0) >= MAX_UNANSWERED) {
-        // Auto-revert to bot
+        if (timeSinceAgent > HANDOFF_TIMEOUT_MS || (conv.unanswered_count || 0) >= MAX_UNANSWERED) {
+            // Auto-revert to bot
+            await query(
+                `UPDATE conversations 
+                 SET status = 'bot', unanswered_count = 0 
+                 WHERE id = $1`,
+                [conversationId]
+            );
+            console.log(`[Handoff] Auto-reverted conv ${conversationId} to bot (timeout: ${timeSinceAgent > HANDOFF_TIMEOUT_MS}, unanswered: ${(conv.unanswered_count || 0) >= MAX_UNANSWERED})`);
+            return true;
+        }
+
+        // Still in human mode, increment unanswered count
         await query(
             `UPDATE conversations 
-             SET status = 'bot', unanswered_count = 0 
+             SET unanswered_count = COALESCE(unanswered_count, 0) + 1 
              WHERE id = $1`,
             [conversationId]
         );
-        console.log(`[Handoff] Auto-reverted conv ${conversationId} to bot (timeout: ${timeSinceAgent > HANDOFF_TIMEOUT_MS}, unanswered: ${(conv.unanswered_count || 0) >= MAX_UNANSWERED})`);
+        console.log(`[Handoff] Conv ${conversationId} in human mode, unanswered: ${(conv.unanswered_count || 0) + 1}`);
+        return false;
+    } catch (err) {
+        // If columns don't exist yet (migration not applied), default to forwarding
+        console.error(`[Handoff] Error checking handoff state for conv ${conversationId}:`, err.message);
+        console.warn('[Handoff] Defaulting to forward — run migrations: bash packages/database/migrate.sh');
         return true;
     }
-
-    // Still in human mode, increment unanswered count
-    await query(
-        `UPDATE conversations 
-         SET unanswered_count = COALESCE(unanswered_count, 0) + 1 
-         WHERE id = $1`,
-        [conversationId]
-    );
-    console.log(`[Handoff] Conv ${conversationId} in human mode, unanswered: ${(conv.unanswered_count || 0) + 1}`);
-    return false;
 }
 
 
@@ -107,6 +114,20 @@ const verifyTelegramWebhook = async (req) => {
 // POST /v1/hooks/telegram/:bot_public_id - Telegram webhook
 router.post('/telegram/:bot_public_id', asyncHandler(async (req, res) => {
     console.log('[Telegram] ========= NEW WEBHOOK REQUEST =========');
+
+    // Idempotency guard: Telegram retries on 500, prevent duplicate inserts
+    const updateId = req.body.update_id;
+    if (updateId) {
+        const dup = await query(
+            `SELECT id FROM messages WHERE raw->>'telegram_update_id' = $1`,
+            [String(updateId)]
+        );
+        if (dup.rows.length > 0) {
+            console.log(`[Telegram] Duplicate update_id ${updateId} — skipping`);
+            return res.status(200).json({ status: 'duplicate' });
+        }
+    }
+
     const channel = await verifyTelegramWebhook(req);
 
     if (!channel) {
@@ -197,14 +218,15 @@ router.post('/telegram/:bot_public_id', asyncHandler(async (req, res) => {
         await linkConversationToContact(conversationId, contact.id);
     }
 
-    // Insert user message
+    // Insert user message (include telegram_update_id for idempotency)
     const msgResult = await query(
         `INSERT INTO messages (conversation_id, role, content, raw)
          VALUES ($1, 'user', $2, $3)
          RETURNING *`,
         [conversationId, content, JSON.stringify({
             message: message,
-            media: mediaResult || null
+            media: mediaResult || null,
+            telegram_update_id: updateId ? String(updateId) : null
         })]
     );
 
