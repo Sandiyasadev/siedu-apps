@@ -111,12 +111,13 @@ function initSocket(httpServer) {
 function emitNewMessage(conversationId, message, workspaceId = null) {
     if (!io) return;
 
-    // Emit to conversation room
+    // Emit to conversation room (agents with chat open)
     io.to(`conversation:${conversationId}`).emit('message:new', message);
 
-    // Emit to workspace room (agents)
+    // Emit to workspace room (agents on inbox list)
+    // .except() prevents double delivery to agents already in the conversation room
     if (workspaceId) {
-        io.to(`workspace:${workspaceId}`).emit('message:new', {
+        io.to(`workspace:${workspaceId}`).except(`conversation:${conversationId}`).emit('message:new', {
             ...message,
             conversation_id: conversationId
         });

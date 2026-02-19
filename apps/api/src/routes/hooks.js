@@ -273,7 +273,11 @@ router.post('/telegram/:bot_public_id', asyncHandler(async (req, res) => {
                 user: fromUser,
                 raw: req.body
             })
-        }).catch(err => console.error('n8n chat webhook error:', err.message));
+        })
+            .then(r => {
+                if (!r.ok) console.error(`[Telegram] n8n returned ${r.status} for conv ${conversationId}`);
+            })
+            .catch(err => console.error(`[Telegram] n8n unreachable for conv ${conversationId}:`, err.message));
     } else {
         console.log(`[Telegram] Skipping n8n forward - conv ${conversationId} in human mode`);
     }
@@ -647,7 +651,11 @@ router.post('/whatsapp/:bot_public_id', asyncHandler(async (req, res) => {
                             wa_message_id: msg.id,
                             raw: { message: msg, contact: waContact, metadata }
                         })
-                    }).catch(err => console.error('[WhatsApp] n8n forward error:', err.message));
+                    })
+                        .then(r => {
+                            if (!r.ok) console.error(`[WhatsApp] n8n returned ${r.status} for conv ${conversationId}`);
+                        })
+                        .catch(err => console.error(`[WhatsApp] n8n unreachable for conv ${conversationId}:`, err.message));
                 } else {
                     console.log(`[WhatsApp] Skipping n8n forward - conv ${conversationId} in human mode`);
                 }

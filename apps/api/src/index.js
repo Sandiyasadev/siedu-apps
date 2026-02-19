@@ -48,7 +48,11 @@ app.use(cors({
 }));
 
 // Global rate limiter
-app.use('/v1', apiLimiter);
+// Global rate limiter — exclude webhooks (they have their own limiter in hooks.js)
+app.use('/v1', (req, res, next) => {
+    if (req.path.startsWith('/hooks')) return next();
+    return apiLimiter(req, res, next);
+});
 
 // Logging
 app.use(morgan('combined'));
