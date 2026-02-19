@@ -80,7 +80,7 @@ services:
       JWT_SECRET: dev-secret-change-me
       JWT_EXPIRES_IN: 7d
       INTERNAL_API_KEY: dev-internal-key
-      CORS_ORIGIN: "*"
+      CORS_ORIGIN: "http://localhost:5173"
       PUBLIC_API_URL: http://localhost:8080
     ports:
       - "8080:8080"
@@ -101,7 +101,7 @@ services:
     working_dir: /app
     command: sh -c "npm install && npm run dev -- --host 0.0.0.0 --port 5173"
     environment:
-      VITE_API_BASE: ""
+      VITE_API_BASE: "http://localhost:8080"
     ports:
       - "5173:5173"
     volumes:
