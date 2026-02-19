@@ -1,0 +1,48 @@
+name: CI Check
+
+# Berjalan di setiap Pull Request ke main
+# Ini adalah "Satpam" yang memeriksa kode sebelum masuk production
+on:
+  pull_request:
+    branches: [main]
+
+jobs:
+  # ============================================
+  # Check 1: Dashboard Build
+  # ============================================
+  check-dashboard:
+    name: Dashboard Build Check
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: apps/dashboard/package-lock.json
+
+      - name: Install dependencies
+        working-directory: apps/dashboard
+        run: npm install
+
+      - name: Build
+        working-directory: apps/dashboard
+        env:
+          VITE_API_BASE: ""
+        run: npm run build
+
+  # ============================================
+  # Check 2: API Docker Build
+  # ============================================
+  check-api:
+    name: API Docker Build Check
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build Docker image
+        run: docker build -t siedu-api-check ./apps/api
