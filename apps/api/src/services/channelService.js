@@ -214,6 +214,101 @@ async function sendWhatsApp(phoneNumber, text, config, media = null) {
 }
 
 /**
+ * Send WhatsApp typing indicator via Meta Cloud API (Oct 2025+)
+ * Shows "typing..." in the customer's WhatsApp chat for up to 25 seconds
+ * or until a message is sent, whichever comes first.
+ * @param {string} waMessageId - The incoming WhatsApp message ID (wamid.*)
+ * @param {Object} config - Channel config with phone_number_id and access_token
+ */
+async function sendWhatsAppTypingIndicator(waMessageId, config) {
+    const { phone_number_id, access_token } = config;
+    if (!phone_number_id || !access_token || !waMessageId) return;
+
+    try {
+        const url = `https://graph.facebook.com/v22.0/${phone_number_id}/messages`;
+        const response = await fetch(url, {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${access_token}`,
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                messaging_product: 'whatsapp',
+                status: 'read',
+                message_id: waMessageId,
+                typing_indicator: { type: 'text' }
+            })
+        });
+
+        if (response.ok) {
+            console.log(`[WhatsApp] Typing indicator sent for message ${waMessageId}`);
+        } else {
+            const err = await response.json();
+            console.warn(`[WhatsApp] Typing indicator failed:`, err.error?.message || response.status);
+        }
+    } catch (err) {
+        console.warn(`[WhatsApp] Typing indicator error:`, err.message);
+    }
+}
+
+/**
+ * Send Telegram typing indicator ("typing..." action)
+ * @param {string} chatId - Telegram chat ID
+ * @param {Object} config - Channel config with bot_token
+ */
+async function sendTelegramTyping(chatId, config) {
+    const botToken = config.bot_token;
+    if (!botToken || !chatId) return;
+
+    try {
+        const url = `https://api.telegram.org/bot${botToken}/sendChatAction`;
+        const response = await fetch(url, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ chat_id: chatId, action: 'typing' })
+        });
+
+        if (response.ok) {
+            console.log(`[Telegram] Typing indicator sent to ${chatId}`);
+        }
+    } catch (err) {
+        console.warn(`[Telegram] Typing indicator error:`, err.message);
+    }
+}
+
+/**
+ * High-level: send typing indicator for a conversation
+ * Dispatches to the correct channel implementation
+ * @param {string} conversationId - Conversation ID
+ * @param {string} [waMessageId] - WhatsApp message ID (required for WhatsApp)
+ */
+async function sendTypingIndicator(conversationId, waMessageId = null) {
+    const channelInfo = await getChannelConfig(conversationId);
+    if (!channelInfo) return;
+
+    const { config, channel_type } = channelInfo;
+
+    switch (channel_type) {
+        case 'whatsapp':
+            if (waMessageId) {
+                await sendWhatsAppTypingIndicator(waMessageId, config);
+            }
+            break;
+        case 'telegram': {
+            // Get the chat ID from the conversation
+            const convResult = await query(
+                'SELECT external_thread_id FROM conversations WHERE id = $1',
+                [conversationId]
+            );
+            if (convResult.rows.length > 0) {
+                await sendTelegramTyping(convResult.rows[0].external_thread_id, config);
+            }
+            break;
+        }
+    }
+}
+
+/**
  * Get channel config for a conversation
  */
 async function getChannelConfig(conversationId) {
@@ -232,5 +327,8 @@ module.exports = {
     sendToChannel,
     sendTelegram,
     sendWhatsApp,
+    sendTypingIndicator,
+    sendWhatsAppTypingIndicator,
+    sendTelegramTyping,
     getChannelConfig
 };

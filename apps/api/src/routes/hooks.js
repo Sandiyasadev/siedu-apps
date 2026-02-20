@@ -6,6 +6,7 @@ const { webhookLimiter } = require('../middleware/rateLimiter');
 const { findOrCreateContact, linkConversationToContact } = require('../services/contactService');
 const { emitNewMessage, emitNewConversation, emitMessageStatus } = require('../services/socketService');
 const { downloadAndStoreMedia, downloadTelegramMedia, extractMediaInfo, buildMediaContent } = require('../services/mediaService');
+const { sendTypingIndicator, sendWhatsAppTypingIndicator } = require('../services/channelService');
 
 const router = express.Router();
 
@@ -264,6 +265,9 @@ router.post('/telegram/:bot_public_id', asyncHandler(async (req, res) => {
     const shouldForward = await shouldForwardToN8n(conversationId);
 
     if (shouldForward) {
+        // Send typing indicator before processing
+        sendTypingIndicator(conversationId).catch(() => { });
+
         const n8nBase = channel.n8n_config?.webhook_base_url || process.env.N8N_WEBHOOK_BASE;
         const n8nWebhookUrl = `${n8nBase}/chat-message`;
 
@@ -663,6 +667,9 @@ router.post('/whatsapp/:bot_public_id', asyncHandler(async (req, res) => {
                 const shouldForward = await shouldForwardToN8n(conversationId);
 
                 if (shouldForward) {
+                    // Send typing indicator before AI processes the message
+                    sendWhatsAppTypingIndicator(msg.id, channel.config || {}).catch(() => { });
+
                     const n8nBase = channel.n8n_config?.webhook_base_url || process.env.N8N_WEBHOOK_BASE;
                     const n8nWebhookUrl = `${n8nBase}/chat-message`;
 

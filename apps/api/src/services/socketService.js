@@ -75,7 +75,7 @@ function initSocket(httpServer) {
             }
         });
 
-        // Typing indicator — only broadcast if user has joined the room
+        // Typing indicator — broadcast to other dashboard users AND forward to external channel
         socket.on('typing:start', ({ conversationId, role }) => {
             const roomName = `conversation:${conversationId}`;
             if (!socket.rooms.has(roomName)) return; // silently ignore
@@ -83,6 +83,13 @@ function initSocket(httpServer) {
                 conversationId,
                 role
             });
+
+            // Forward agent typing to external channel (WhatsApp/Telegram)
+            if (role === 'agent') {
+                // Lazy import to avoid circular dependency
+                const { sendTypingIndicator } = require('./channelService');
+                sendTypingIndicator(conversationId).catch(() => { });
+            }
         });
 
         socket.on('typing:stop', ({ conversationId, role }) => {

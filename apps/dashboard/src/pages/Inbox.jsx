@@ -258,6 +258,7 @@ function InboxPage() {
     const inputRef = useRef(null)
     const fileInputRef = useRef(null)
     const selectedConvRef = useRef(null) // Track selected conversation for socket handlers
+    const typingTimeoutRef = useRef(null) // Debounce typing indicator
 
     // Pagination state
     const [pagination, setPagination] = useState({
@@ -1408,7 +1409,20 @@ function InboxPage() {
                                             : 'Type a message... (Enter to send)'
                                     }
                                     value={newMessage}
-                                    onChange={e => setNewMessage(e.target.value)}
+                                    onChange={e => {
+                                        setNewMessage(e.target.value)
+                                        // Emit typing indicator (debounced)
+                                        if (socket && selectedConv && e.target.value.length > 0) {
+                                            if (!typingTimeoutRef.current) {
+                                                socket.emit('typing:start', { conversationId: selectedConv.id, role: 'agent' })
+                                            }
+                                            clearTimeout(typingTimeoutRef.current)
+                                            typingTimeoutRef.current = setTimeout(() => {
+                                                socket.emit('typing:stop', { conversationId: selectedConv.id, role: 'agent' })
+                                                typingTimeoutRef.current = null
+                                            }, 3000)
+                                        }
+                                    }}
                                     onKeyDown={e => {
                                         if (e.key === 'Enter' && !e.shiftKey) {
                                             e.preventDefault()
