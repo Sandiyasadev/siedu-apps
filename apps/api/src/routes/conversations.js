@@ -450,7 +450,7 @@ router.get('/:id/messages', asyncHandler(async (req, res) => {
 
     // Build query with cursor pagination
     let sql = `
-        SELECT id, cursor_id, role, content, raw, created_at
+        SELECT id, cursor_id, role, content, raw, created_at, status
         FROM messages
         WHERE conversation_id = $1
     `;
