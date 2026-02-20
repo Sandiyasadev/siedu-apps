@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useCallback, memo } from 'react'
 import { useAuth } from '../App'
 import { API_BASE } from '../config/api'
 import { useSocket } from '../contexts/SocketContext'
@@ -238,6 +238,74 @@ function MediaMessage({ content, token }) {
             )
     }
 }
+
+// ============================================================
+// Memoized ConversationItem — prevents re-rendering the entire
+// conversation list every time selectedConv changes.
+// ============================================================
+const ConversationItem = memo(function ConversationItem({
+    conv, isSelected, onClick, formatTime, getMediaPreview
+}) {
+    const channelConfig = CHANNEL_CONFIG[conv.channel_type] || CHANNEL_CONFIG.web
+    const ChannelIconEl = channelConfig.icon
+
+    return (
+        <div
+            className={`conversation-item ${isSelected ? 'active' : ''}`}
+            onClick={() => onClick(conv)}
+        >
+            <div className="conversation-avatar">
+                <User size={20} className="conversation-avatar-icon" />
+                <div className={`conversation-channel-badge ${channelConfig.color}`}>
+                    <ChannelIconEl size={8} />
+                </div>
+            </div>
+            <div className="conversation-content">
+                <div className="conversation-header">
+                    <span className="conversation-name">
+                        {conv.unread_count > 0 && (
+                            <span style={{
+                                display: 'inline-block',
+                                width: 8, height: 8,
+                                background: 'var(--primary-500)',
+                                borderRadius: '50%',
+                                marginRight: 'var(--space-2)'
+                            }} />
+                        )}
+                        {conv.contact_name || conv.external_thread_id?.slice(0, 12) || 'Guest'}
+                    </span>
+                    <span className="conversation-time">
+                        {conv.unread_count > 0 && (
+                            <span style={{
+                                background: 'var(--primary-500)',
+                                color: 'white',
+                                padding: '2px 6px',
+                                borderRadius: 'var(--radius-full)',
+                                fontSize: '11px',
+                                fontWeight: 600,
+                                marginRight: 'var(--space-2)'
+                            }}>
+                                {conv.unread_count}
+                            </span>
+                        )}
+                        {formatTime(conv.last_message_at || conv.last_user_at)}
+                    </span>
+                </div>
+                <p className="conversation-preview"
+                    style={conv.unread_count > 0 ? { fontWeight: 600 } : {}}
+                >
+                    {getMediaPreview(conv.last_message_preview)}
+                </p>
+                <div className="conversation-meta">
+                    <span className={`status-badge ${conv.status}`}>
+                        {conv.status === 'human' ? 'CS Active' : 'Bot'}
+                    </span>
+                    <span className="text-xs text-muted">{conv.bot_name}</span>
+                </div>
+            </div>
+        </div>
+    )
+})
 
 function InboxPage() {
     const { getToken, user } = useAuth()
@@ -708,33 +776,34 @@ function InboxPage() {
     }
 
     // Handle conversation selection (with mobile support)
-    const handleConversationClick = async (conv) => {
+    // useCallback: stable reference so React.memo on ConversationItem works correctly
+    const handleConversationClick = useCallback(async (conv) => {
+        // Immediately clear old messages so the UI feels instant
+        setMessages([])
         setSelectedConv(conv)
         if (isMobile) {
             setShowChat(true)
         }
 
-        // Mark as read if unread
+        // Mark as read if unread (fire-and-forget, doesn't block UI)
         if (conv.unread_count > 0 || !conv.agent_read_at) {
             const prevUnread = conv.unread_count || 0
-            try {
-                await fetch(`${API_BASE}/v1/conversations/${conv.id}/read`, {
-                    method: 'POST',
-                    headers: { 'Authorization': `Bearer ${getToken()}` }
-                })
-                // Update local state
+            fetch(`${API_BASE}/v1/conversations/${conv.id}/read`, {
+                method: 'POST',
+                headers: { 'Authorization': `Bearer ${getToken()}` }
+            }).then(() => {
+                // Update local state after network completes
                 setConversations(prev => prev.map(c =>
                     c.id === conv.id ? { ...c, unread_count: 0, agent_read_at: new Date() } : c
                 ))
-                // Decrement global badge by actual unread count of this conversation
                 if (prevUnread > 0) {
                     decrementUnread(prevUnread)
                 }
-            } catch (err) {
+            }).catch(err => {
                 console.error('Failed to mark as read:', err)
-            }
+            })
         }
-    }
+    }, [isMobile, getToken, decrementUnread])
 
     // Handle back button on mobile
     const handleBackToList = () => {
@@ -958,69 +1027,16 @@ function InboxPage() {
                                         conv.contact_name?.toLowerCase().includes(searchLower)
                                     )
                                 })
-                                .map(conv => {
-                                    const isSelected = selectedConv?.id === conv.id
-                                    const channelConfig = CHANNEL_CONFIG[conv.channel_type] || CHANNEL_CONFIG.web
-
-                                    return (
-                                        <div
-                                            key={conv.id}
-                                            className={`conversation-item ${isSelected ? 'active' : ''}`}
-                                            onClick={() => handleConversationClick(conv)}
-                                        >
-                                            <div className="conversation-avatar">
-                                                <User size={20} className="conversation-avatar-icon" />
-                                                <div className={`conversation-channel-badge ${channelConfig.color}`}>
-                                                    <ChannelIcon type={conv.channel_type} size={8} />
-                                                </div>
-                                            </div>
-
-                                            <div className="conversation-content">
-                                                <div className="conversation-header">
-                                                    <span className="conversation-name">
-                                                        {conv.unread_count > 0 && (
-                                                            <span style={{
-                                                                display: 'inline-block',
-                                                                width: 8, height: 8,
-                                                                background: 'var(--primary-500)',
-                                                                borderRadius: '50%',
-                                                                marginRight: 'var(--space-2)'
-                                                            }} />
-                                                        )}
-                                                        {conv.contact_name || conv.external_thread_id?.slice(0, 12) || 'Guest'}
-                                                    </span>
-                                                    <span className="conversation-time">
-                                                        {conv.unread_count > 0 && (
-                                                            <span style={{
-                                                                background: 'var(--primary-500)',
-                                                                color: 'white',
-                                                                padding: '2px 6px',
-                                                                borderRadius: 'var(--radius-full)',
-                                                                fontSize: '11px',
-                                                                fontWeight: 600,
-                                                                marginRight: 'var(--space-2)'
-                                                            }}>
-                                                                {conv.unread_count}
-                                                            </span>
-                                                        )}
-                                                        {formatTime(conv.last_message_at || conv.last_user_at)}
-                                                    </span>
-                                                </div>
-                                                <p className="conversation-preview"
-                                                    style={conv.unread_count > 0 ? { fontWeight: 600 } : {}}
-                                                >
-                                                    {getMediaPreview(conv.last_message_preview)}
-                                                </p>
-                                                <div className="conversation-meta">
-                                                    <span className={`status-badge ${conv.status}`}>
-                                                        {conv.status === 'human' ? 'CS Active' : 'Bot'}
-                                                    </span>
-                                                    <span className="text-xs text-muted">{conv.bot_name}</span>
-                                                </div>
-                                            </div>
-                                        </div>
-                                    )
-                                })}
+                                .map(conv => (
+                                    <ConversationItem
+                                        key={conv.id}
+                                        conv={conv}
+                                        isSelected={selectedConv?.id === conv.id}
+                                        onClick={handleConversationClick}
+                                        formatTime={formatTime}
+                                        getMediaPreview={getMediaPreview}
+                                    />
+                                ))}
 
                             {/* Load more indicator */}
                             {pagination.loading && (
