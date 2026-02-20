@@ -27,6 +27,7 @@ const { apiLimiter } = require('./middleware/rateLimiter');
 // Import services
 const { initSocket } = require('./services/socketService');
 const { initMediaBucket } = require('./utils/storage');
+const { startHandoffScheduler } = require('./services/handoffScheduler');
 
 const app = express();
 const PORT = process.env.PORT || 8080;
@@ -93,6 +94,9 @@ server.listen(PORT, async () => {
 
     // Initialize media bucket with lifecycle policy
     await initMediaBucket();
+
+    // Start handoff auto-revert scheduler
+    startHandoffScheduler();
 });
 
 module.exports = { app, server };

@@ -16,7 +16,7 @@ router.use(webhookLimiter);
 // V1 Handoff Gatekeeper
 // Determines if message should be forwarded to n8n or skipped
 // ============================================
-const HANDOFF_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes
+const HANDOFF_TIMEOUT_MS = 10 * 60 * 1000; // 10 minutes
 const MAX_UNANSWERED = 3;
 
 async function shouldForwardToN8n(conversationId) {
