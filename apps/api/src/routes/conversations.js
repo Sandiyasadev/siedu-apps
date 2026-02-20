@@ -15,6 +15,22 @@ const upload = multer({
 });
 
 // ============================================
+// GET /v1/conversations/unread-count - Global unread count for sidebar badge
+// ============================================
+router.get('/unread-count', asyncHandler(async (req, res) => {
+    const workspaceId = req.user.workspace_id;
+
+    const result = await query(`
+        SELECT COALESCE(SUM(c.unread_count), 0)::int as total_unread
+        FROM conversations c
+        JOIN bots b ON b.id = c.bot_id
+        WHERE b.workspace_id = $1 AND c.unread_count > 0
+    `, [workspaceId]);
+
+    res.json({ unread_count: result.rows[0]?.total_unread || 0 });
+}));
+
+// ============================================
 // GET /v1/conversations/stats - Dashboard stats (with caching)
 // ============================================
 router.get('/stats', asyncHandler(async (req, res) => {

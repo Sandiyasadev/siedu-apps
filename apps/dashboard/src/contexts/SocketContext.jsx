@@ -52,6 +52,23 @@ export function SocketProvider({ children }) {
     // Get token from localStorage
     const getToken = useCallback(() => localStorage.getItem('token'), [])
 
+    // Fetch TRUE unread count from backend API
+    const fetchUnreadCount = useCallback(async () => {
+        const token = getToken()
+        if (!token) return
+        try {
+            const res = await fetch(`${API_BASE}/v1/conversations/unread-count`, {
+                headers: { Authorization: `Bearer ${token}` }
+            })
+            if (res.ok) {
+                const data = await res.json()
+                setUnreadCount(data.unread_count || 0)
+            }
+        } catch (err) {
+            console.error('[Socket] Failed to fetch unread count:', err)
+        }
+    }, [getToken])
+
     // Initialize socket connection - runs ONCE
     useEffect(() => {
         const token = getToken()
@@ -72,6 +89,7 @@ export function SocketProvider({ children }) {
             console.log('[Socket] Connected globally')
             setIsConnected(true)
             socket.emit('join:agent')
+            fetchUnreadCount() // Sync badge with real DB count on connect
         })
 
         socket.on('disconnect', (reason) => {
@@ -152,10 +170,10 @@ export function SocketProvider({ children }) {
         return () => listenersRef.current.delete(id)
     }, [])
 
-    // Reset unread count (when user opens Inbox)
+    // Sync unread count with backend (replaces old resetUnread)
     const resetUnread = useCallback(() => {
-        setUnreadCount(0)
-    }, [])
+        fetchUnreadCount()
+    }, [fetchUnreadCount])
 
     // Mark specific count as read
     const decrementUnread = useCallback((count = 1) => {
@@ -168,7 +186,8 @@ export function SocketProvider({ children }) {
         unreadCount,
         resetUnread,
         decrementUnread,
-        addListener
+        addListener,
+        fetchUnreadCount
     }
 
     return (

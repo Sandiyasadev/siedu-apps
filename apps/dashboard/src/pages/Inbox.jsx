@@ -715,6 +715,7 @@ function InboxPage() {
 
         // Mark as read if unread
         if (conv.unread_count > 0 || !conv.agent_read_at) {
+            const prevUnread = conv.unread_count || 0
             try {
                 await fetch(`${API_BASE}/v1/conversations/${conv.id}/read`, {
                     method: 'POST',
@@ -724,6 +725,10 @@ function InboxPage() {
                 setConversations(prev => prev.map(c =>
                     c.id === conv.id ? { ...c, unread_count: 0, agent_read_at: new Date() } : c
                 ))
+                // Decrement global badge by actual unread count of this conversation
+                if (prevUnread > 0) {
+                    decrementUnread(prevUnread)
+                }
             } catch (err) {
                 console.error('Failed to mark as read:', err)
             }
