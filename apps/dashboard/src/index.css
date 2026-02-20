@@ -704,7 +704,7 @@ a:hover {
    ========================================== */
 .inbox-layout {
   display: flex;
-  height: calc(100vh - var(--topbar-height));
+  height: 100vh;
   background: var(--gray-100);
 }
 
@@ -2026,6 +2026,7 @@ a:hover {
 
 /* Mobile Phones (480px and below) */
 @media (max-width: 480px) {
+
   /* Stats - single column */
   .stats-grid {
     grid-template-columns: 1fr;
