@@ -555,13 +555,19 @@ router.post('/:id/messages', upload.single('file'), asyncHandler(async (req, res
     // Emit socket event for real-time
     emitNewMessage(req.params.id, msgResult.rows[0]);
 
-    // V1: Track agent reply for handoff timeout
+    // V1: Auto-switch to human mode when agent replies + track for handoff timeout
+    const convBeforeUpdate = convResult.rows[0];
     await query(
         `UPDATE conversations 
-         SET last_agent_reply_at = NOW(), unanswered_count = 0 
+         SET status = 'human', last_agent_reply_at = NOW(), unanswered_count = 0 
          WHERE id = $1`,
         [req.params.id]
     );
+
+    // Emit status change only if status actually changed (was 'bot' before)
+    if (convBeforeUpdate.status !== 'human') {
+        emitStatusChange(req.params.id, 'human');
+    }
 
     // Send to external channel (Telegram, WhatsApp, etc.)
     // For media: pass caption (original text) + media object
