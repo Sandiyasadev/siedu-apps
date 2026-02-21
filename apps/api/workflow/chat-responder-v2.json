@@ -105,14 +105,39 @@
         },
         {
             "parameters": {
-                "jsCode": "const payload = $('Normalize Payload').first().json;\nconst config = $input.first().json;\n\nreturn [{\n  json: {\n    conversation_id: payload.conversationId,\n    bot_id: payload.botId,\n    user_message: payload.message.text,\n    channel_type: payload.channel,\n    user_name: payload.user.name || '',\n    user_id: payload.user.id || payload.conversationId,\n    system_prompt: config.system_prompt || 'You are a helpful customer service assistant.',\n    bot_name: config.name || 'AI Assistant'\n  }\n}];"
+                "url": "=http://host.docker.internal:8080/v1/internal/bot-templates/{{ $('Normalize Payload').item.json.botId }}",
+                "sendHeaders": true,
+                "headerParameters": {
+                    "parameters": [
+                        {
+                            "name": "X-Internal-Key",
+                            "value": "=dev-internal-key"
+                        }
+                    ]
+                },
+                "options": {
+                    "timeout": 5000
+                }
+            },
+            "id": "fetch-templates",
+            "name": "Fetch Templates",
+            "type": "n8n-nodes-base.httpRequest",
+            "typeVersion": 4.2,
+            "position": [
+                370,
+                300
+            ]
+        },
+        {
+            "parameters": {
+                "jsCode": "const payload = $('Normalize Payload').first().json;\nconst config = $('Fetch Bot Config').first().json;\nconst templates = $('Fetch Templates').first().json.templates || [];\n\n// Format templates sebagai XML instruksional untuk LLM\nlet templates_xml = 'Tidak ada template khusus. Gunakan gaya bahasa natural.';\nif (templates.length > 0) {\n  templates_xml = templates.map(t => {\n    return `<TEMPLATE_ITEM name=\"${t.name}\" category=\"${t.category || 'general'}\">\n${t.content}\n</TEMPLATE_ITEM>`;\n  }).join('\\n\\n');\n}\n\nreturn [{\n  json: {\n    conversation_id: payload.conversationId,\n    bot_id: payload.botId,\n    user_message: payload.message.text,\n    channel_type: payload.channel,\n    user_name: payload.user.name || '',\n    user_id: payload.user.id || payload.conversationId,\n    system_prompt: config.system_prompt || 'You are a helpful customer service assistant.',\n    bot_name: config.name || 'AI Assistant',\n    templates_xml\n  }\n}];"
             },
             "id": "43c02741-2f01-4ec7-9ee1-f8dc6f00b88a",
             "name": "Prepare Context",
             "type": "n8n-nodes-base.code",
             "typeVersion": 2,
             "position": [
-                480,
+                530,
                 300
             ]
         },
@@ -294,7 +319,7 @@
                 "promptType": "define",
                 "text": "={{ $('Parse Classifier').item.json.rag_search_query }}",
                 "options": {
-                    "systemPromptTemplate": "=[IDENTITAS & GAYA BAHASA]\nAnda adalah Customer Service WhatsApp yang ramah, sopan, dan profesional.\n- Sapa pelanggan dengan \"Kak\"\n- Gunakan emoji secukupnya agar tidak kaku\n- Gaya bahasa: singkat, padat, natural seperti chatting WhatsApp\n- Hindari paragraf panjang atau bullet points berlebihan\n\n[ATURAN MENJAWAB]\n1. GUNAKAN KONTEKS: Anda HANYA boleh menjawab berdasarkan informasi di [CONTEXT]\n2. DILARANG MENGARANG: Jika informasi tidak ada di [CONTEXT], JANGAN pernah mengarang\n3. JAWABAN TIDAK TAHU: Jika info tidak ada, jawab: \"Maaf banget Kak, untuk pertanyaan tersebut belum ada di sistem kami. Ada hal lain yang bisa dibantu? 🙏\"\n4. KONTINUITAS: Perhatikan [RIWAYAT CHAT] untuk menjaga konteks percakapan\n\n[CONTEXT]\n{context}\n\n[RIWAYAT CHAT]\n{{ $('Format History').item.json.history }}\n\n[PERTANYAAN]\n{{ $('Format History').item.json.user_message }}"
+                    "systemPromptTemplate": "=[IDENTITAS & GAYA BAHASA]\nAnda adalah Customer Service WhatsApp/Telegram yang ramah, sopan, dan profesional.\n- Sapa pelanggan dengan \"Kak\"\n- Gunakan emoji secukupnya agar tidak kaku\n- Gaya bahasa: singkat, padat, natural seperti chatting WhatsApp\n- Hindari paragraf panjang atau bullet points berlebihan\n\n[ATURAN MENJAWAB]\n1. GUNAKAN KONTEKS: Anda HANYA boleh menjawab berdasarkan informasi di <CONTEXT>\n2. DILARANG MENGARANG: Jika informasi tidak ada di <CONTEXT>, JANGAN pernah mengarang\n3. JAWABAN TIDAK TAHU: Jika info tidak ada, jawab: \"Maaf banget Kak, untuk pertanyaan tersebut belum ada di sistem kami. Ada hal lain yang bisa dibantu? 🙏\"\n4. KONTINUITAS: Perhatikan <RIWAYAT_CHAT> untuk menjaga konteks percakapan\n\n[ATURAN PENGGUNAAN TEMPLATE]\n1. Periksa <MASTER_TEMPLATES>. Jika ada template yang strukturnya cocok dengan niat <PERTANYAAN>, WAJIB gunakan struktur kalimat template tersebut.\n2. JANGAN meng-copy template mentah-mentah. Isilah detail spesifik (harga, nama, jumlah, waktu) menggunakan data nyata dari <CONTEXT>.\n3. Jika TIDAK ada template yang cocok, atau <CONTEXT> kosong, jawab secara natural dan sopan tanpa template.\n\n<MASTER_TEMPLATES>\n{{ $('Prepare Context').item.json.templates_xml }}\n</MASTER_TEMPLATES>\n\n<CONTEXT>\n{context}\n</CONTEXT>\n\n<RIWAYAT_CHAT>\n{{ $('Format History').item.json.history }}\n</RIWAYAT_CHAT>\n\n<PERTANYAAN>\n{{ $('Format History').item.json.user_message }}\n</PERTANYAAN>"
                 }
             },
             "id": "249e0545-eec6-4521-941d-6865498a5e45",
@@ -584,6 +609,17 @@
             ]
         },
         "Fetch Bot Config": {
+            "main": [
+                [
+                    {
+                        "node": "Fetch Templates",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Fetch Templates": {
             "main": [
                 [
                     {

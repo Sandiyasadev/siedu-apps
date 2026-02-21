@@ -635,4 +635,22 @@ router.get('/kb-file/:sourceId', asyncHandler(async (req, res) => {
     }
 }));
 
+// ============================================
+// GET /v1/internal/bot-templates/:botId
+// n8n fetches active templates for a bot
+// ============================================
+router.get('/bot-templates/:botId', asyncHandler(async (req, res) => {
+    const { botId } = req.params;
+
+    const result = await query(
+        `SELECT id, name, content, category, shortcut
+         FROM templates
+         WHERE bot_id = $1 AND is_active = true
+         ORDER BY category, use_count DESC`,
+        [botId]
+    );
+
+    res.json({ templates: result.rows });
+}));
+
 module.exports = router;
