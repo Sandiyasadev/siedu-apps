@@ -156,7 +156,7 @@
             "parameters": {
                 "mode": "retrieve-as-tool",
                 "toolDescription": "Cari informasi dari knowledge base. Gunakan untuk menjawab pertanyaan tentang produk, harga, promo, kebijakan, pengiriman, dan informasi bisnis lainnya. Selalu gunakan tool ini sebelum menjawab pertanyaan pelanggan.",
-                "tableName": "kb_embeddings",
+                "tableName": "n8n_vectors",
                 "options": {}
             },
             "id": "kb-tool",
@@ -169,10 +169,12 @@
             ]
         },
         {
-            "parameters": {},
+            "parameters": {
+                "model": "amazon.titan-embed-text-v2:0"
+            },
             "id": "embeddings",
-            "name": "Embeddings Google Gemini",
-            "type": "@n8n/n8n-nodes-langchain.embeddingsGoogleGemini",
+            "name": "Embeddings AWS Bedrock",
+            "type": "@n8n/n8n-nodes-langchain.embeddingsAwsBedrock",
             "typeVersion": 1,
             "position": [
                 200,
@@ -376,7 +378,7 @@
                 ]
             ]
         },
-        "Embeddings Google Gemini": {
+        "Embeddings AWS Bedrock": {
             "ai_embedding": [
                 [
                     {

@@ -108,10 +108,12 @@
             ]
         },
         {
-            "parameters": {},
+            "parameters": {
+                "model": "amazon.titan-embed-text-v2:0"
+            },
             "id": "embeddings",
-            "name": "Embeddings Google Gemini",
-            "type": "@n8n/n8n-nodes-langchain.embeddingsGoogleGemini",
+            "name": "Embeddings AWS Bedrock",
+            "type": "@n8n/n8n-nodes-langchain.embeddingsAwsBedrock",
             "typeVersion": 1,
             "position": [
                 80,
@@ -120,7 +122,7 @@
         },
         {
             "parameters": {
-                "jsCode": "const webhook = $('KB Upload Webhook').first().json;\n\nreturn [{\n  json: {\n    pageContent: $('Prepare Text').first().json.text,\n    metadata: {\n      bot_id: webhook.bot_id,\n      source_id: webhook.source_id,\n      filename: webhook.filename,\n      kb_type: webhook.kb_type || 'faq',\n      topic: webhook.topic || 'general',\n      language: webhook.language || 'id'\n    }\n  }\n}];"
+                "jsCode": "const input = $('Prepare Text').first().json;\n\n// Type-based chunking config\nconst chunkConfig = {\n  faq:                { chunkSize: 500,  chunkOverlap: 50  },\n  policy:             { chunkSize: 1000, chunkOverlap: 200 },\n  product_info:       { chunkSize: 800,  chunkOverlap: 100 },\n  troubleshooting:    { chunkSize: 1000, chunkOverlap: 200 },\n  internal_guideline: { chunkSize: 1200, chunkOverlap: 200 },\n};\nconst cfg = chunkConfig[input.kb_type] || chunkConfig.faq;\n\nreturn [{\n  json: {\n    pageContent: input.text,\n    metadata: {\n      bot_id: input.bot_id,\n      source_id: input.source_id,\n      filename: input.filename,\n      kb_type: input.kb_type,\n      topic: input.topic,\n      language: input.language\n    },\n    chunkSize: cfg.chunkSize,\n    chunkOverlap: cfg.chunkOverlap\n  }\n}];"
             },
             "id": "build-document",
             "name": "Build Document with Metadata",
@@ -310,7 +312,7 @@
                 ]
             ]
         },
-        "Embeddings Google Gemini": {
+        "Embeddings AWS Bedrock": {
             "ai_embedding": [
                 [
                     {

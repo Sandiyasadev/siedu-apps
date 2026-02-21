@@ -1,0 +1,274 @@
+{
+    "name": "KB - Document Formatter",
+    "nodes": [
+        {
+            "parameters": {
+                "formTitle": "Document Formatter — Knowledge Base",
+                "formDescription": "Upload dokumen mentah untuk diformat ulang oleh AI agar optimal untuk embedding Knowledge Base.",
+                "formFields": {
+                    "values": [
+                        {
+                            "fieldLabel": "Upload File",
+                            "fieldType": "file",
+                            "acceptFileTypes": ".pdf,.txt,.doc,.docx",
+                            "requiredField": true
+                        },
+                        {
+                            "fieldLabel": "Tipe Dokumen",
+                            "fieldType": "dropdown",
+                            "requiredField": true,
+                            "fieldOptions": {
+                                "values": [
+                                    {
+                                        "option": "faq"
+                                    },
+                                    {
+                                        "option": "policy"
+                                    },
+                                    {
+                                        "option": "product_info"
+                                    },
+                                    {
+                                        "option": "troubleshooting"
+                                    },
+                                    {
+                                        "option": "internal_guideline"
+                                    }
+                                ]
+                            }
+                        }
+                    ]
+                },
+                "options": {
+                    "respondWithData": false
+                }
+            },
+            "id": "form-trigger",
+            "name": "On form submission",
+            "type": "n8n-nodes-base.formTrigger",
+            "typeVersion": 2.5,
+            "position": [
+                -400,
+                300
+            ],
+            "webhookId": "doc-formatter"
+        },
+        {
+            "parameters": {
+                "operation": "text",
+                "options": {}
+            },
+            "id": "extract-text",
+            "name": "Extract Text",
+            "type": "n8n-nodes-base.extractFromFile",
+            "typeVersion": 1,
+            "position": [
+                -160,
+                300
+            ]
+        },
+        {
+            "parameters": {
+                "jsCode": "const text = $('Extract Text').first().json.data || $('Extract Text').first().json.text || '';\nconst type = $('On form submission').first().json['Tipe Dokumen'];\n\nif (!text || text.trim().length === 0) {\n  throw new Error('Tidak ada teks yang dapat diekstrak dari file.');\n}\n\nconst prompts = {\n  faq: `Kamu adalah formatter dokumen Knowledge Base untuk AI Customer Service.\n\nTUGAS: Ubah teks mentah ini menjadi format FAQ (Frequently Asked Questions).\n\nATURAN KETAT:\n- JANGAN menambah informasi baru yang tidak ada di teks asli\n- JANGAN menghapus informasi apapun\n- Hanya SUSUN ULANG menjadi pasangan Tanya-Jawab\n\nFORMAT OUTPUT:\nSetiap Q&A harus berdiri sendiri (self-contained) tanpa perlu konteks dari Q&A lain.\nGunakan format:\n---\nT: [pertanyaan lengkap]\nJ: [jawaban lengkap dalam 1-3 kalimat utuh]\n---\n\nPisahkan setiap pasangan Q&A dengan garis \"---\" agar mudah dipotong otomatis.\nTargetkan setiap blok Q&A sekitar 300-500 karakter.`,\n\n  policy: `Kamu adalah formatter dokumen Knowledge Base untuk AI Customer Service.\n\nTUGAS: Format ulang kebijakan/aturan ini agar optimal untuk pencarian AI.\n\nATURAN KETAT:\n- JANGAN menambah aturan baru yang tidak ada di teks asli\n- JANGAN mengubah angka, tanggal, atau syarat apapun\n- Hanya SUSUN ULANG agar kalimat lebih tegas dan utuh\n\nFORMAT OUTPUT:\nKelompokkan per topik kebijakan. Setiap kelompok dimulai dengan judul tebal.\n\n**[Judul Kebijakan]**\n- Setiap poin harus menyebutkan SYARAT dan KONSEKUENSI secara eksplisit dalam kalimat utuh\n- Hindari singkatan atau referensi implisit (\"lihat poin di atas\" = tulis ulang lengkap)\n\nPisahkan setiap kelompok kebijakan dengan garis \"---\".\nTargetkan setiap kelompok sekitar 800-1000 karakter.`,\n\n  product_info: `Kamu adalah formatter dokumen Knowledge Base untuk AI Customer Service.\n\nTUGAS: Ubah data produk/layanan ini menjadi deskripsi naratif yang mudah dipahami AI.\n\nATURAN KETAT:\n- JANGAN menambah fitur atau spesifikasi yang tidak ada di teks asli\n- JANGAN mengubah harga, ukuran, atau data numerik\n- Hanya SUSUN ULANG dari format tabel/list menjadi paragraf deskriptif\n\nFORMAT OUTPUT:\nSetiap produk menjadi 1 blok deskripsi lengkap:\n---\n**[Nama Produk]**\n[Deskripsi naratif: bahan/material, pilihan warna/ukuran, harga, ketersediaan, keunggulan. Semua dalam 1 paragraf kohesif.]\n---\n\nTargetkan setiap blok produk sekitar 500-800 karakter.`,\n\n  troubleshooting: `Kamu adalah formatter dokumen Knowledge Base untuk AI Customer Service.\n\nTUGAS: Format ulang panduan troubleshooting ini agar mudah dicari dan dipahami AI.\n\nATURAN KETAT:\n- JANGAN menambah langkah solusi yang tidak ada di teks asli\n- JANGAN mengubah urutan langkah\n- Hanya SUSUN ULANG ke format standar Kendala-Solusi\n\nFORMAT OUTPUT:\nSetiap masalah menjadi 1 blok mandiri:\n---\n**Kendala:** [deskripsi masalah dalam 1 kalimat jelas]\n**Solusi:**\n1. [langkah pertama - kalimat utuh]\n2. [langkah kedua - kalimat utuh]\n3. [dst...]\n**Catatan:** [info tambahan jika ada, atau hapus baris ini]\n---\n\nTargetkan setiap blok kendala sekitar 800-1000 karakter.`,\n\n  internal_guideline: `Kamu adalah formatter dokumen Knowledge Base untuk AI Customer Service.\n\nTUGAS: Format ulang SOP/panduan internal ini menjadi instruksi terstruktur untuk bot AI.\n\nATURAN KETAT:\n- JANGAN menambah aturan perilaku yang tidak ada di teks asli\n- JANGAN mengubah batas waktu, eskalasi, atau threshold\n- Hanya SUSUN ULANG menjadi instruksi imperatif yang jelas\n\nFORMAT OUTPUT:\nKelompokkan per situasi/skenario:\n---\n**[Situasi/Skenario]**\nJIKA [kondisi], MAKA:\n- [instruksi 1]\n- [instruksi 2]\nESKALASI KE: [tujuan eskalasi jika disebutkan]\n---\n\nTargetkan setiap blok sekitar 1000-1200 karakter.`\n};\n\nconst systemPrompt = prompts[type] || prompts.faq;\n\nreturn [{\n  json: {\n    text: text.trim(),\n    type,\n    systemPrompt\n  }\n}];"
+            },
+            "id": "build-prompt",
+            "name": "Build Prompt",
+            "type": "n8n-nodes-base.code",
+            "typeVersion": 2,
+            "position": [
+                80,
+                300
+            ]
+        },
+        {
+            "parameters": {
+                "inputSource": "passthrough",
+                "promptType": "define",
+                "text": "={{ $json.text }}",
+                "options": {
+                    "systemMessage": "={{ $json.systemPrompt }}",
+                    "temperature": 0.1
+                }
+            },
+            "id": "nova-pro",
+            "name": "Nova Pro Formatter",
+            "type": "@n8n/n8n-nodes-langchain.chainLlm",
+            "typeVersion": 1.4,
+            "position": [
+                320,
+                300
+            ]
+        },
+        {
+            "parameters": {
+                "model": {
+                    "__rl": true,
+                    "mode": "list",
+                    "value": "amazon.nova-pro-v1:0"
+                },
+                "options": {
+                    "temperature": 0.1
+                }
+            },
+            "id": "bedrock-llm",
+            "name": "AWS Bedrock Nova Pro",
+            "type": "@n8n/n8n-nodes-langchain.lmChatAwsBedrock",
+            "typeVersion": 1,
+            "position": [
+                320,
+                520
+            ]
+        },
+        {
+            "parameters": {
+                "jsCode": "const type = $('On form submission').first().json['Tipe Dokumen'];\nconst formatted = $input.first().json.text || $input.first().json.response?.text || $input.first().json.output || '';\nconst timestamp = new Date().toISOString().slice(0, 10);\nconst fileName = `formatted_${type}_${timestamp}.txt`;\n\nif (!formatted || formatted.trim().length === 0) {\n  throw new Error('AI tidak menghasilkan output. Coba lagi.');\n}\n\nreturn [{\n  json: { fileName },\n  binary: {\n    data: {\n      data: Buffer.from(formatted, 'utf-8').toString('base64'),\n      mimeType: 'text/plain',\n      fileName\n    }\n  }\n}];"
+            },
+            "id": "prepare-output",
+            "name": "Prepare Output",
+            "type": "n8n-nodes-base.code",
+            "typeVersion": 2,
+            "position": [
+                560,
+                300
+            ]
+        },
+        {
+            "parameters": {
+                "name": "={{ $json.fileName }}",
+                "folderId": {
+                    "__rl": true,
+                    "mode": "list",
+                    "value": ""
+                },
+                "options": {}
+            },
+            "id": "gdrive-upload",
+            "name": "Google Drive Upload",
+            "type": "n8n-nodes-base.googleDrive",
+            "typeVersion": 3,
+            "position": [
+                800,
+                300
+            ]
+        },
+        {
+            "parameters": {
+                "formTitle": "Formatting Selesai ✅",
+                "formDescription": "Dokumen berhasil diformat dan diupload ke Google Drive.",
+                "formFields": {
+                    "values": [
+                        {
+                            "fieldLabel": "Status",
+                            "fieldType": "text",
+                            "fieldValue": "Berhasil diformat dan diupload ke Google Drive."
+                        }
+                    ]
+                },
+                "options": {}
+            },
+            "id": "form-response",
+            "name": "Form Response",
+            "type": "n8n-nodes-base.form",
+            "typeVersion": 1,
+            "position": [
+                1040,
+                300
+            ]
+        }
+    ],
+    "connections": {
+        "On form submission": {
+            "main": [
+                [
+                    {
+                        "node": "Extract Text",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Extract Text": {
+            "main": [
+                [
+                    {
+                        "node": "Build Prompt",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Build Prompt": {
+            "main": [
+                [
+                    {
+                        "node": "Nova Pro Formatter",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "AWS Bedrock Nova Pro": {
+            "ai_languageModel": [
+                [
+                    {
+                        "node": "Nova Pro Formatter",
+                        "type": "ai_languageModel",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Nova Pro Formatter": {
+            "main": [
+                [
+                    {
+                        "node": "Prepare Output",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Prepare Output": {
+            "main": [
+                [
+                    {
+                        "node": "Google Drive Upload",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Google Drive Upload": {
+            "main": [
+                [
+                    {
+                        "node": "Form Response",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        }
+    },
+    "pinData": {},
+    "active": false,
+    "settings": {
+        "executionOrder": "v1"
+    },
+    "meta": {
+        "templateCredsSetupCompleted": true
+    },
+    "tags": [
+        {
+            "name": "kb"
+        },
+        {
+            "name": "formatter"
+        }
+    ]
+}
