@@ -1,8 +1,16 @@
 import { useState, useEffect, useRef } from 'react'
 import { useAuth } from '../App'
 import { API_BASE } from '../config/api'
-import { Upload, FileText, Trash2, RefreshCw, CheckCircle, AlertCircle, Clock } from 'lucide-react'
+import { Upload, FileText, Trash2, RefreshCw, CheckCircle, AlertCircle, Clock, X, Tag, FolderOpen } from 'lucide-react'
 import ConfirmModal from '../components/ConfirmModal'
+
+const KB_TYPES = [
+    { value: 'faq', label: 'FAQ', desc: 'Pertanyaan umum (Q&A)' },
+    { value: 'policy', label: 'Kebijakan', desc: 'Aturan, garansi, T&C' },
+    { value: 'product_info', label: 'Info Produk', desc: 'Spesifikasi, harga, varian' },
+    { value: 'troubleshooting', label: 'Troubleshooting', desc: 'Panduan kendala / error' },
+    { value: 'internal_guideline', label: 'SOP Internal', desc: 'Panduan perilaku bot (internal)' },
+]
 
 function KnowledgeBase() {
     const { getToken } = useAuth()
@@ -16,6 +24,11 @@ function KnowledgeBase() {
     const [deleteTarget, setDeleteTarget] = useState(null)
     const [deleting, setDeleting] = useState(false)
     const fileInputRef = useRef(null)
+
+    // Metadata modal state
+    const [showMetadataModal, setShowMetadataModal] = useState(false)
+    const [pendingFile, setPendingFile] = useState(null)
+    const [metaForm, setMetaForm] = useState({ kb_type: 'faq', topic: '' })
 
     useEffect(() => {
         fetchBots()
@@ -59,10 +72,22 @@ function KnowledgeBase() {
         }
     }
 
-    const handleFileSelect = async (e) => {
+    // When user picks a file, open the metadata modal instead of uploading immediately
+    const handleFileSelect = (e) => {
         const file = e.target.files?.[0]
         if (!file || !selectedBot) return
+        setPendingFile(file)
+        setMetaForm({ kb_type: 'faq', topic: '' })
+        setShowMetadataModal(true)
+        // Reset input so the same file can be re-selected
+        if (fileInputRef.current) fileInputRef.current.value = ''
+    }
 
+    // Submit file + metadata
+    const handleUploadWithMetadata = async () => {
+        if (!pendingFile || !selectedBot) return
+
+        setShowMetadataModal(false)
         setUploading(true)
         setError('')
         setSuccess('')
@@ -70,8 +95,10 @@ function KnowledgeBase() {
 
         try {
             const formData = new FormData()
-            formData.append('file', file)
+            formData.append('file', pendingFile)
             formData.append('bot_id', selectedBot)
+            formData.append('kb_type', metaForm.kb_type)
+            formData.append('topic', metaForm.topic || 'general')
 
             const res = await fetch(`${API_BASE}/v1/kb/upload`, {
                 method: 'POST',
@@ -91,9 +118,7 @@ function KnowledgeBase() {
             setError('Upload failed')
         } finally {
             setUploading(false)
-            if (fileInputRef.current) {
-                fileInputRef.current.value = ''
-            }
+            setPendingFile(null)
         }
     }
 
@@ -135,6 +160,11 @@ function KnowledgeBase() {
             default:
                 return <span className="badge badge-info">{status}</span>
         }
+    }
+
+    const getKbTypeLabel = (type) => {
+        const found = KB_TYPES.find(t => t.value === type)
+        return found ? found.label : type
     }
 
     return (
@@ -230,6 +260,8 @@ function KnowledgeBase() {
                             <thead>
                                 <tr>
                                     <th>Document</th>
+                                    <th>Type</th>
+                                    <th>Topic</th>
                                     <th>Status</th>
                                     <th>Chunks</th>
                                     <th>Uploaded</th>
@@ -257,6 +289,12 @@ function KnowledgeBase() {
                                                     <div style={{ fontWeight: 500 }}>{source.original_filename || source.filename}</div>
                                                 </div>
                                             </div>
+                                        </td>
+                                        <td>
+                                            <span className="badge badge-info">{getKbTypeLabel(source.kb_type)}</span>
+                                        </td>
+                                        <td style={{ color: 'var(--gray-600)', fontSize: 'var(--font-size-sm)' }}>
+                                            {source.topic || '-'}
                                         </td>
                                         <td>{getStatusBadge(source.status)}</td>
                                         <td>{source.chunk_count || '-'}</td>
@@ -301,6 +339,14 @@ function KnowledgeBase() {
                                     </div>
 
                                     <div className="table-mobile-row">
+                                        <span>Type</span>
+                                        <span className="badge badge-info">{getKbTypeLabel(source.kb_type)}</span>
+                                    </div>
+                                    <div className="table-mobile-row">
+                                        <span>Topic</span>
+                                        <span>{source.topic || '-'}</span>
+                                    </div>
+                                    <div className="table-mobile-row">
                                         <span>Status</span>
                                         <span>{getStatusBadge(source.status)}</span>
                                     </div>
@@ -324,6 +370,78 @@ function KnowledgeBase() {
                                     </div>
                                 </div>
                             ))}
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* Metadata Modal */}
+            {showMetadataModal && (
+                <div className="modal-overlay" onClick={() => { setShowMetadataModal(false); setPendingFile(null) }}>
+                    <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: 480 }}>
+                        <div className="modal-header">
+                            <h3 style={{ margin: 0 }}>Klasifikasi Dokumen</h3>
+                            <button className="btn btn-ghost" onClick={() => { setShowMetadataModal(false); setPendingFile(null) }}>
+                                <X size={18} />
+                            </button>
+                        </div>
+                        <div className="modal-body" style={{ padding: 'var(--space-5)' }}>
+                            {/* File preview */}
+                            <div style={{
+                                display: 'flex', alignItems: 'center', gap: 'var(--space-3)',
+                                padding: 'var(--space-3) var(--space-4)',
+                                background: 'var(--gray-50)', borderRadius: 'var(--radius-md)',
+                                marginBottom: 'var(--space-5)'
+                            }}>
+                                <FileText size={20} style={{ color: 'var(--info-500)', flexShrink: 0 }} />
+                                <div style={{ minWidth: 0 }}>
+                                    <div style={{ fontWeight: 500, wordBreak: 'break-word' }}>{pendingFile?.name}</div>
+                                    <div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--gray-500)' }}>
+                                        {pendingFile && (pendingFile.size / 1024).toFixed(1)} KB
+                                    </div>
+                                </div>
+                            </div>
+
+                            {/* KB Type */}
+                            <div style={{ marginBottom: 'var(--space-4)' }}>
+                                <label className="form-label" style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)', marginBottom: 'var(--space-2)' }}>
+                                    <Tag size={14} /> Tipe Dokumen
+                                </label>
+                                <select
+                                    className="form-input"
+                                    value={metaForm.kb_type}
+                                    onChange={e => setMetaForm(f => ({ ...f, kb_type: e.target.value }))}
+                                >
+                                    {KB_TYPES.map(t => (
+                                        <option key={t.value} value={t.value}>{t.label} — {t.desc}</option>
+                                    ))}
+                                </select>
+                            </div>
+
+                            {/* Topic */}
+                            <div style={{ marginBottom: 'var(--space-4)' }}>
+                                <label className="form-label" style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)', marginBottom: 'var(--space-2)' }}>
+                                    <FolderOpen size={14} /> Topik
+                                </label>
+                                <input
+                                    className="form-input"
+                                    type="text"
+                                    placeholder="cth: kebijakan_retur, daftar_harga, jam_operasional"
+                                    value={metaForm.topic}
+                                    onChange={e => setMetaForm(f => ({ ...f, topic: e.target.value }))}
+                                />
+                                <p style={{ fontSize: 'var(--font-size-xs)', color: 'var(--gray-500)', marginTop: 'var(--space-1)' }}>
+                                    Topik spesifik untuk membantu AI memfilter pencarian.
+                                </p>
+                            </div>
+                        </div>
+                        <div className="modal-footer" style={{ display: 'flex', justifyContent: 'flex-end', gap: 'var(--space-3)', padding: 'var(--space-4) var(--space-5)' }}>
+                            <button className="btn btn-secondary" onClick={() => { setShowMetadataModal(false); setPendingFile(null) }}>
+                                Batal
+                            </button>
+                            <button className="btn btn-primary" onClick={handleUploadWithMetadata}>
+                                <Upload size={16} /> Upload & Proses
+                            </button>
                         </div>
                     </div>
                 </div>

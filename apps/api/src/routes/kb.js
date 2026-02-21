@@ -53,7 +53,7 @@ router.get('/sources', asyncHandler(async (req, res) => {
 
     const result = await query(
         `SELECT id, filename, original_filename, content_type, status, 
-            error_message, chunk_count, kb_type, category, language, created_at, indexed_at
+            error_message, chunk_count, kb_type, topic, language, created_at, indexed_at
      FROM kb_sources 
      WHERE bot_id = $1 AND status != 'deleted'
      ORDER BY created_at DESC`,
@@ -65,7 +65,7 @@ router.get('/sources', asyncHandler(async (req, res) => {
 
 // POST /v1/kb/upload - Upload file to KB
 router.post('/upload', uploadLimiter, upload.single('file'), asyncHandler(async (req, res) => {
-    const { bot_id, kb_type, category, language } = req.body;
+    const { bot_id, kb_type, topic, language } = req.body;
 
     if (!bot_id) {
         return res.status(400).json({ error: 'bot_id is required' });
@@ -95,12 +95,12 @@ router.post('/upload', uploadLimiter, upload.single('file'), asyncHandler(async 
     // Create KB source record with categorization
     const result = await query(
         `INSERT INTO kb_sources (bot_id, source_type, filename, original_filename, 
-                             content_type, object_key, file_size, status, kb_type, category, language)
+                             content_type, object_key, file_size, status, kb_type, topic, language)
      VALUES ($1, 'file', $2, $3, $4, $5, $6, 'processing', $7, $8, $9)
-     RETURNING id, filename, original_filename, status, kb_type, category, language, created_at`,
+     RETURNING id, filename, original_filename, status, kb_type, topic, language, created_at`,
         [bot_id, req.file.originalname.replace(/[^a-zA-Z0-9.-]/g, '_'),
             req.file.originalname, req.file.mimetype, objectKey, req.file.size,
-            kb_type || 'facts', category || 'general', language || 'id']
+            kb_type || 'faq', topic || 'general', language || 'id']
     );
 
     // Trigger n8n workflow via webhook (async)
@@ -116,8 +116,8 @@ router.post('/upload', uploadLimiter, upload.single('file'), asyncHandler(async 
             bot_id,
             object_key: objectKey,
             filename: req.file.originalname,
-            kb_type: kb_type || 'facts',
-            category: category || 'general',
+            kb_type: kb_type || 'faq',
+            topic: topic || 'general',
             language: language || 'id'
         })
     })

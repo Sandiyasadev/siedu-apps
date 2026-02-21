@@ -218,8 +218,8 @@ CREATE TABLE IF NOT EXISTS kb_sources (
     status VARCHAR(50) DEFAULT 'processing', -- processing, indexed, error, deleted
     error_message TEXT,
     chunk_count INTEGER DEFAULT 0,
-    kb_type VARCHAR(50) DEFAULT 'facts',
-    category VARCHAR(100) DEFAULT 'general',
+    kb_type VARCHAR(50) DEFAULT 'faq',
+    topic VARCHAR(100) DEFAULT 'general',
     language VARCHAR(10) DEFAULT 'id',
     created_at TIMESTAMPTZ DEFAULT NOW(),
     indexed_at TIMESTAMPTZ,
