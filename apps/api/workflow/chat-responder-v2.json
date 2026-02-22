@@ -130,7 +130,7 @@
         },
         {
             "parameters": {
-                "jsCode": "const payload = $('Normalize Payload').first().json;\nconst config = $('Fetch Bot Config').first().json;\nconst templates = $('Fetch Templates').first().json.templates || [];\n\n// Format templates sebagai XML instruksional untuk LLM\nlet templates_xml = 'Tidak ada template khusus. Gunakan gaya bahasa natural.';\nif (templates.length > 0) {\n  templates_xml = templates.map(t => {\n    return `<TEMPLATE_ITEM name=\"${t.name}\" category=\"${t.category || 'general'}\">\n${t.content}\n</TEMPLATE_ITEM>`;\n  }).join('\\n\\n');\n}\n\nreturn [{\n  json: {\n    conversation_id: payload.conversationId,\n    bot_id: payload.botId,\n    user_message: payload.message.text,\n    channel_type: payload.channel,\n    user_name: payload.user.name || '',\n    user_id: payload.user.id || payload.conversationId,\n    system_prompt: config.system_prompt || 'You are a helpful customer service assistant.',\n    bot_name: config.name || 'AI Assistant',\n    templates_xml\n  }\n}];"
+                "jsCode": "const payload = $('Normalize Payload').first().json;\nconst config = $('Fetch Bot Config').first().json;\n// Get templates from the intent-specific fetch node\nlet templates = [];\ntry {\n  const allItems = $input.all();\n  templates = (allItems[0]?.json?.templates) || [];\n} catch(e) { templates = []; }\n\n// Fisher-Yates shuffle\nfunction shuffle(arr) {\n  const a = [...arr];\n  for (let i = a.length - 1; i > 0; i--) {\n    const j = Math.floor(Math.random() * (i + 1));\n    [a[i], a[j]] = [a[j], a[i]];\n  }\n  return a;\n}\n\n// Group by category, shuffle, take max 2 per category\nlet templates_xml = 'Tidak ada template khusus. Gunakan gaya bahasa natural.';\nif (templates.length > 0) {\n  const MAX_PER_CAT = 2;\n  const groups = {};\n  for (const t of templates) {\n    const cat = t.category || 'general';\n    if (!groups[cat]) groups[cat] = [];\n    groups[cat].push(t);\n  }\n  const sampled = [];\n  for (const cat of Object.keys(groups)) {\n    const shuffled = shuffle(groups[cat]);\n    sampled.push(...shuffled.slice(0, MAX_PER_CAT));\n  }\n  templates_xml = sampled.map(t => `<TEMPLATE_ITEM name=\"${t.name}\" category=\"${t.category || 'general'}\">\n${t.content}\n</TEMPLATE_ITEM>`).join('\\n\\n');\n}\n\nreturn [{\n  json: {\n    conversation_id: payload.conversationId,\n    bot_id: payload.botId,\n    user_message: payload.message.text,\n    channel_type: payload.channel,\n    user_name: payload.user.name || '',\n    user_id: payload.user.id || payload.conversationId,\n    system_prompt: config.system_prompt || 'You are a helpful customer service assistant.',\n    bot_name: config.name || 'AI Assistant',\n    templates_xml\n  }\n}];"
             },
             "id": "43c02741-2f01-4ec7-9ee1-f8dc6f00b88a",
             "name": "Prepare Context",
@@ -565,6 +565,1074 @@
                 2700,
                 620
             ]
+        },
+        {
+            "parameters": {
+                "jsCode": "const payload = $('Normalize Payload').first().json;\nconst config = $('Fetch Bot Config').first().json;\n\n// Try to read message history to detect new vs returning contact\nlet history = [];\ntry {\n  history = $('Fetch History').first().json?.messages || [];\n} catch(e) { history = []; }\n\nconst now = Date.now();\nconst isNew = history.length === 0;\nconst lastTs = history.length > 0\n  ? new Date(history.at(-1).created_at).getTime()\n  : 0;\nconst gapHours = lastTs > 0 ? (now - lastTs) / 3600000 : 9999;\nconst isReturning = !isNew && gapHours > 24;\n\n// Forced intent — skip LLM Classifier\nlet forcedIntent = null;\nif (isNew)       forcedIntent = 'engagement.greeting_new';\nif (isReturning) forcedIntent = 'engagement.greeting_return';\n\nreturn [{ json: { isNew, isReturning, gapHours: Math.round(gapHours), forcedIntent } }];"
+            },
+            "id": "check-contact-status",
+            "name": "Check Contact Status",
+            "type": "n8n-nodes-base.code",
+            "typeVersion": 2,
+            "position": [
+                690,
+                300
+            ]
+        },
+        {
+            "parameters": {
+                "inputSource": "passthrough",
+                "promptType": "define",
+                "text": "={{ $('Format History').first().json.user_message }}",
+                "options": {
+                    "systemMessage": "Kamu adalah Intent Classifier untuk Customer Service. Hanya output satu string. Tanpa penjelasan, tanpa tanda baca tambahan.\n\nFORMAT: fase.intent (titik sebagai pemisah, lowercase)\n\nPILIHAN VALID (pilih SATU yang paling tepat):\nengagement.greeting_new | engagement.greeting_return | engagement.time_inquiry\ndiscovery.program_detail | discovery.schedule_location | discovery.tutor_profile | discovery.curriculum\nevaluation.pricing_inquiry | evaluation.objection_price | evaluation.objection_compare\nevaluation.objection_risk | evaluation.objection_authority | evaluation.objection_urgency\nconversion.soft | conversion.transaction | conversion.confirm\nretention.complaint_service | retention.complaint_refund | retention.progress_inquiry | retention.reschedule\n\nATURAN PILIHAN:\n- greeting_new: sapaan pertama, 'halo', 'min', 'selamat pagi'\n- greeting_return: kembali setelah lama\n- time_inquiry: tanya jam buka/slot tersedia\n- program_detail: tanya program/jasa secara umum\n- schedule_location: tanya jadwal atau lokasi\n- tutor_profile: tanya pengajar/tim/staf\n- curriculum: tanya materi/kurikulum\n- pricing_inquiry: tanya harga/biaya/paket\n- objection_price: 'kok mahal', 'lebih murah di tempat lain'\n- objection_compare: menyebut nama kompetitor\n- objection_risk: 'kalau gak cocok', 'kalau gak ada hasil'\n- objection_authority: tanya pengalaman/legalitas/track record\n- objection_urgency: 'nanti aja', 'pikir-pikir dulu'\n- conversion.soft: tertarik tapi belum mutuskan\n- conversion.transaction: minta link/cara daftar/bayar\n- conversion.confirm: kirim bukti bayar\n- complaint_service: komplain layanan\n- complaint_refund: minta refund\n- progress_inquiry: tanya perkembangan\n- reschedule: minta ganti jadwal\n\nRiwayat Chat (3 pesan terakhir):\n{{ $('Format History').first().json.history }}\n\nPesan Terakhir:\n{{ $('Format History').first().json.user_message }}",
+                    "temperature": 0
+                }
+            },
+            "id": "intent-classifier",
+            "name": "Intent Classifier",
+            "type": "@n8n/n8n-nodes-langchain.chainLlm",
+            "typeVersion": 1.4,
+            "position": [
+                850,
+                300
+            ]
+        },
+        {
+            "parameters": {
+                "model": "amazon.nova-lite-v1:0",
+                "options": {
+                    "temperature": 0
+                }
+            },
+            "id": "nova-lite",
+            "name": "AWS Bedrock Nova Lite",
+            "type": "@n8n/n8n-nodes-langchain.lmChatAwsBedrock",
+            "typeVersion": 1.1,
+            "position": [
+                850,
+                520
+            ],
+            "credentials": {
+                "aws": {
+                    "id": "w1WID0kdD8RQoTjj",
+                    "name": "us-api"
+                }
+            }
+        },
+        {
+            "parameters": {
+                "jsCode": "const status = $('Check Contact Status').first().json;\nconst forced = status.forcedIntent;\n\nlet classified = forced;\nif (!forced) {\n  try {\n    classified = ($('Intent Classifier').first().json.text || '').trim().toLowerCase();\n  } catch(e) { classified = ''; }\n}\n\nconst validIntents = [\n  'engagement.greeting_new','engagement.greeting_return','engagement.time_inquiry',\n  'discovery.program_detail','discovery.schedule_location','discovery.tutor_profile','discovery.curriculum',\n  'evaluation.pricing_inquiry','evaluation.objection_price','evaluation.objection_compare',\n  'evaluation.objection_risk','evaluation.objection_authority','evaluation.objection_urgency',\n  'conversion.soft','conversion.transaction','conversion.confirm',\n  'retention.complaint_service','retention.complaint_refund','retention.progress_inquiry','retention.reschedule'\n];\n\nconst intent = validIntents.includes(classified) ? classified : 'discovery.program_detail';\nconst wasForced = !!forced;\n\nreturn [{ json: { intent, wasForced } }];"
+            },
+            "id": "merge-intent",
+            "name": "Merge Intent",
+            "type": "n8n-nodes-base.code",
+            "typeVersion": 2,
+            "position": [
+                1010,
+                300
+            ]
+        },
+        {
+            "parameters": {
+                "mode": "rules",
+                "rules": {
+                    "values": [
+                        {
+                            "conditions": {
+                                "options": {
+                                    "caseSensitive": false
+                                },
+                                "conditions": [
+                                    {
+                                        "leftValue": "={{ $json.intent }}",
+                                        "rightValue": "engagement.greeting_new",
+                                        "operator": {
+                                            "type": "string",
+                                            "operation": "equals"
+                                        }
+                                    }
+                                ]
+                            },
+                            "renameOutput": true,
+                            "outputKey": "engagement.greeting_new"
+                        },
+                        {
+                            "conditions": {
+                                "options": {
+                                    "caseSensitive": false
+                                },
+                                "conditions": [
+                                    {
+                                        "leftValue": "={{ $json.intent }}",
+                                        "rightValue": "engagement.greeting_return",
+                                        "operator": {
+                                            "type": "string",
+                                            "operation": "equals"
+                                        }
+                                    }
+                                ]
+                            },
+                            "renameOutput": true,
+                            "outputKey": "engagement.greeting_return"
+                        },
+                        {
+                            "conditions": {
+                                "options": {
+                                    "caseSensitive": false
+                                },
+                                "conditions": [
+                                    {
+                                        "leftValue": "={{ $json.intent }}",
+                                        "rightValue": "engagement.time_inquiry",
+                                        "operator": {
+                                            "type": "string",
+                                            "operation": "equals"
+                                        }
+                                    }
+                                ]
+                            },
+                            "renameOutput": true,
+                            "outputKey": "engagement.time_inquiry"
+                        },
+                        {
+                            "conditions": {
+                                "options": {
+                                    "caseSensitive": false
+                                },
+                                "conditions": [
+                                    {
+                                        "leftValue": "={{ $json.intent }}",
+                                        "rightValue": "discovery.program_detail",
+                                        "operator": {
+                                            "type": "string",
+                                            "operation": "equals"
+                                        }
+                                    }
+                                ]
+                            },
+                            "renameOutput": true,
+                            "outputKey": "discovery.program_detail"
+                        },
+                        {
+                            "conditions": {
+                                "options": {
+                                    "caseSensitive": false
+                                },
+                                "conditions": [
+                                    {
+                                        "leftValue": "={{ $json.intent }}",
+                                        "rightValue": "discovery.schedule_location",
+                                        "operator": {
+                                            "type": "string",
+                                            "operation": "equals"
+                                        }
+                                    }
+                                ]
+                            },
+                            "renameOutput": true,
+                            "outputKey": "discovery.schedule_location"
+                        },
+                        {
+                            "conditions": {
+                                "options": {
+                                    "caseSensitive": false
+                                },
+                                "conditions": [
+                                    {
+                                        "leftValue": "={{ $json.intent }}",
+                                        "rightValue": "discovery.tutor_profile",
+                                        "operator": {
+                                            "type": "string",
+                                            "operation": "equals"
+                                        }
+                                    }
+                                ]
+                            },
+                            "renameOutput": true,
+                            "outputKey": "discovery.tutor_profile"
+                        },
+                        {
+                            "conditions": {
+                                "options": {
+                                    "caseSensitive": false
+                                },
+                                "conditions": [
+                                    {
+                                        "leftValue": "={{ $json.intent }}",
+                                        "rightValue": "discovery.curriculum",
+                                        "operator": {
+                                            "type": "string",
+                                            "operation": "equals"
+                                        }
+                                    }
+                                ]
+                            },
+                            "renameOutput": true,
+                            "outputKey": "discovery.curriculum"
+                        },
+                        {
+                            "conditions": {
+                                "options": {
+                                    "caseSensitive": false
+                                },
+                                "conditions": [
+                                    {
+                                        "leftValue": "={{ $json.intent }}",
+                                        "rightValue": "evaluation.pricing_inquiry",
+                                        "operator": {
+                                            "type": "string",
+                                            "operation": "equals"
+                                        }
+                                    }
+                                ]
+                            },
+                            "renameOutput": true,
+                            "outputKey": "evaluation.pricing_inquiry"
+                        },
+                        {
+                            "conditions": {
+                                "options": {
+                                    "caseSensitive": false
+                                },
+                                "conditions": [
+                                    {
+                                        "leftValue": "={{ $json.intent }}",
+                                        "rightValue": "evaluation.objection_price",
+                                        "operator": {
+                                            "type": "string",
+                                            "operation": "equals"
+                                        }
+                                    }
+                                ]
+                            },
+                            "renameOutput": true,
+                            "outputKey": "evaluation.objection_price"
+                        },
+                        {
+                            "conditions": {
+                                "options": {
+                                    "caseSensitive": false
+                                },
+                                "conditions": [
+                                    {
+                                        "leftValue": "={{ $json.intent }}",
+                                        "rightValue": "evaluation.objection_compare",
+                                        "operator": {
+                                            "type": "string",
+                                            "operation": "equals"
+                                        }
+                                    }
+                                ]
+                            },
+                            "renameOutput": true,
+                            "outputKey": "evaluation.objection_compare"
+                        },
+                        {
+                            "conditions": {
+                                "options": {
+                                    "caseSensitive": false
+                                },
+                                "conditions": [
+                                    {
+                                        "leftValue": "={{ $json.intent }}",
+                                        "rightValue": "evaluation.objection_risk",
+                                        "operator": {
+                                            "type": "string",
+                                            "operation": "equals"
+                                        }
+                                    }
+                                ]
+                            },
+                            "renameOutput": true,
+                            "outputKey": "evaluation.objection_risk"
+                        },
+                        {
+                            "conditions": {
+                                "options": {
+                                    "caseSensitive": false
+                                },
+                                "conditions": [
+                                    {
+                                        "leftValue": "={{ $json.intent }}",
+                                        "rightValue": "evaluation.objection_authority",
+                                        "operator": {
+                                            "type": "string",
+                                            "operation": "equals"
+                                        }
+                                    }
+                                ]
+                            },
+                            "renameOutput": true,
+                            "outputKey": "evaluation.objection_authority"
+                        },
+                        {
+                            "conditions": {
+                                "options": {
+                                    "caseSensitive": false
+                                },
+                                "conditions": [
+                                    {
+                                        "leftValue": "={{ $json.intent }}",
+                                        "rightValue": "evaluation.objection_urgency",
+                                        "operator": {
+                                            "type": "string",
+                                            "operation": "equals"
+                                        }
+                                    }
+                                ]
+                            },
+                            "renameOutput": true,
+                            "outputKey": "evaluation.objection_urgency"
+                        },
+                        {
+                            "conditions": {
+                                "options": {
+                                    "caseSensitive": false
+                                },
+                                "conditions": [
+                                    {
+                                        "leftValue": "={{ $json.intent }}",
+                                        "rightValue": "conversion.soft",
+                                        "operator": {
+                                            "type": "string",
+                                            "operation": "equals"
+                                        }
+                                    }
+                                ]
+                            },
+                            "renameOutput": true,
+                            "outputKey": "conversion.soft"
+                        },
+                        {
+                            "conditions": {
+                                "options": {
+                                    "caseSensitive": false
+                                },
+                                "conditions": [
+                                    {
+                                        "leftValue": "={{ $json.intent }}",
+                                        "rightValue": "conversion.transaction",
+                                        "operator": {
+                                            "type": "string",
+                                            "operation": "equals"
+                                        }
+                                    }
+                                ]
+                            },
+                            "renameOutput": true,
+                            "outputKey": "conversion.transaction"
+                        },
+                        {
+                            "conditions": {
+                                "options": {
+                                    "caseSensitive": false
+                                },
+                                "conditions": [
+                                    {
+                                        "leftValue": "={{ $json.intent }}",
+                                        "rightValue": "conversion.confirm",
+                                        "operator": {
+                                            "type": "string",
+                                            "operation": "equals"
+                                        }
+                                    }
+                                ]
+                            },
+                            "renameOutput": true,
+                            "outputKey": "conversion.confirm"
+                        },
+                        {
+                            "conditions": {
+                                "options": {
+                                    "caseSensitive": false
+                                },
+                                "conditions": [
+                                    {
+                                        "leftValue": "={{ $json.intent }}",
+                                        "rightValue": "retention.complaint_service",
+                                        "operator": {
+                                            "type": "string",
+                                            "operation": "equals"
+                                        }
+                                    }
+                                ]
+                            },
+                            "renameOutput": true,
+                            "outputKey": "retention.complaint_service"
+                        },
+                        {
+                            "conditions": {
+                                "options": {
+                                    "caseSensitive": false
+                                },
+                                "conditions": [
+                                    {
+                                        "leftValue": "={{ $json.intent }}",
+                                        "rightValue": "retention.complaint_refund",
+                                        "operator": {
+                                            "type": "string",
+                                            "operation": "equals"
+                                        }
+                                    }
+                                ]
+                            },
+                            "renameOutput": true,
+                            "outputKey": "retention.complaint_refund"
+                        },
+                        {
+                            "conditions": {
+                                "options": {
+                                    "caseSensitive": false
+                                },
+                                "conditions": [
+                                    {
+                                        "leftValue": "={{ $json.intent }}",
+                                        "rightValue": "retention.progress_inquiry",
+                                        "operator": {
+                                            "type": "string",
+                                            "operation": "equals"
+                                        }
+                                    }
+                                ]
+                            },
+                            "renameOutput": true,
+                            "outputKey": "retention.progress_inquiry"
+                        },
+                        {
+                            "conditions": {
+                                "options": {
+                                    "caseSensitive": false
+                                },
+                                "conditions": [
+                                    {
+                                        "leftValue": "={{ $json.intent }}",
+                                        "rightValue": "retention.reschedule",
+                                        "operator": {
+                                            "type": "string",
+                                            "operation": "equals"
+                                        }
+                                    }
+                                ]
+                            },
+                            "renameOutput": true,
+                            "outputKey": "retention.reschedule"
+                        }
+                    ]
+                },
+                "options": {
+                    "fallbackOutput": "extra",
+                    "looseTypeValidation": true
+                }
+            },
+            "id": "route-intent",
+            "name": "Route Intent",
+            "type": "n8n-nodes-base.switch",
+            "typeVersion": 3,
+            "position": [
+                1170,
+                300
+            ]
+        },
+        {
+            "parameters": {
+                "method": "GET",
+                "url": "=http://host.docker.internal:8080/v1/internal/bot-templates/{{ $('Prepare Context').first().json.bot_id }}?sub_category=engagement.greeting_new",
+                "sendHeaders": true,
+                "headerParameters": {
+                    "parameters": [
+                        {
+                            "name": "X-Internal-Key",
+                            "value": "dev-internal-key"
+                        },
+                        {
+                            "name": "Content-Type",
+                            "value": "application/json"
+                        }
+                    ]
+                },
+                "options": {
+                    "timeout": 5000
+                }
+            },
+            "id": "fetch-tpl-engagement-greeting_new",
+            "name": "Templates: engagement.greeting_new",
+            "type": "n8n-nodes-base.httpRequest",
+            "typeVersion": 4.2,
+            "position": [
+                1330,
+                300
+            ]
+        },
+        {
+            "parameters": {
+                "method": "GET",
+                "url": "=http://host.docker.internal:8080/v1/internal/bot-templates/{{ $('Prepare Context').first().json.bot_id }}?sub_category=engagement.greeting_return",
+                "sendHeaders": true,
+                "headerParameters": {
+                    "parameters": [
+                        {
+                            "name": "X-Internal-Key",
+                            "value": "dev-internal-key"
+                        },
+                        {
+                            "name": "Content-Type",
+                            "value": "application/json"
+                        }
+                    ]
+                },
+                "options": {
+                    "timeout": 5000
+                }
+            },
+            "id": "fetch-tpl-engagement-greeting_return",
+            "name": "Templates: engagement.greeting_return",
+            "type": "n8n-nodes-base.httpRequest",
+            "typeVersion": 4.2,
+            "position": [
+                1510,
+                300
+            ]
+        },
+        {
+            "parameters": {
+                "method": "GET",
+                "url": "=http://host.docker.internal:8080/v1/internal/bot-templates/{{ $('Prepare Context').first().json.bot_id }}?sub_category=engagement.time_inquiry",
+                "sendHeaders": true,
+                "headerParameters": {
+                    "parameters": [
+                        {
+                            "name": "X-Internal-Key",
+                            "value": "dev-internal-key"
+                        },
+                        {
+                            "name": "Content-Type",
+                            "value": "application/json"
+                        }
+                    ]
+                },
+                "options": {
+                    "timeout": 5000
+                }
+            },
+            "id": "fetch-tpl-engagement-time_inquiry",
+            "name": "Templates: engagement.time_inquiry",
+            "type": "n8n-nodes-base.httpRequest",
+            "typeVersion": 4.2,
+            "position": [
+                1690,
+                300
+            ]
+        },
+        {
+            "parameters": {
+                "method": "GET",
+                "url": "=http://host.docker.internal:8080/v1/internal/bot-templates/{{ $('Prepare Context').first().json.bot_id }}?sub_category=discovery.program_detail",
+                "sendHeaders": true,
+                "headerParameters": {
+                    "parameters": [
+                        {
+                            "name": "X-Internal-Key",
+                            "value": "dev-internal-key"
+                        },
+                        {
+                            "name": "Content-Type",
+                            "value": "application/json"
+                        }
+                    ]
+                },
+                "options": {
+                    "timeout": 5000
+                }
+            },
+            "id": "fetch-tpl-discovery-program_detail",
+            "name": "Templates: discovery.program_detail",
+            "type": "n8n-nodes-base.httpRequest",
+            "typeVersion": 4.2,
+            "position": [
+                1870,
+                300
+            ]
+        },
+        {
+            "parameters": {
+                "method": "GET",
+                "url": "=http://host.docker.internal:8080/v1/internal/bot-templates/{{ $('Prepare Context').first().json.bot_id }}?sub_category=discovery.schedule_location",
+                "sendHeaders": true,
+                "headerParameters": {
+                    "parameters": [
+                        {
+                            "name": "X-Internal-Key",
+                            "value": "dev-internal-key"
+                        },
+                        {
+                            "name": "Content-Type",
+                            "value": "application/json"
+                        }
+                    ]
+                },
+                "options": {
+                    "timeout": 5000
+                }
+            },
+            "id": "fetch-tpl-discovery-schedule_location",
+            "name": "Templates: discovery.schedule_location",
+            "type": "n8n-nodes-base.httpRequest",
+            "typeVersion": 4.2,
+            "position": [
+                2050,
+                300
+            ]
+        },
+        {
+            "parameters": {
+                "method": "GET",
+                "url": "=http://host.docker.internal:8080/v1/internal/bot-templates/{{ $('Prepare Context').first().json.bot_id }}?sub_category=discovery.tutor_profile",
+                "sendHeaders": true,
+                "headerParameters": {
+                    "parameters": [
+                        {
+                            "name": "X-Internal-Key",
+                            "value": "dev-internal-key"
+                        },
+                        {
+                            "name": "Content-Type",
+                            "value": "application/json"
+                        }
+                    ]
+                },
+                "options": {
+                    "timeout": 5000
+                }
+            },
+            "id": "fetch-tpl-discovery-tutor_profile",
+            "name": "Templates: discovery.tutor_profile",
+            "type": "n8n-nodes-base.httpRequest",
+            "typeVersion": 4.2,
+            "position": [
+                1330,
+                420
+            ]
+        },
+        {
+            "parameters": {
+                "method": "GET",
+                "url": "=http://host.docker.internal:8080/v1/internal/bot-templates/{{ $('Prepare Context').first().json.bot_id }}?sub_category=discovery.curriculum",
+                "sendHeaders": true,
+                "headerParameters": {
+                    "parameters": [
+                        {
+                            "name": "X-Internal-Key",
+                            "value": "dev-internal-key"
+                        },
+                        {
+                            "name": "Content-Type",
+                            "value": "application/json"
+                        }
+                    ]
+                },
+                "options": {
+                    "timeout": 5000
+                }
+            },
+            "id": "fetch-tpl-discovery-curriculum",
+            "name": "Templates: discovery.curriculum",
+            "type": "n8n-nodes-base.httpRequest",
+            "typeVersion": 4.2,
+            "position": [
+                1510,
+                420
+            ]
+        },
+        {
+            "parameters": {
+                "method": "GET",
+                "url": "=http://host.docker.internal:8080/v1/internal/bot-templates/{{ $('Prepare Context').first().json.bot_id }}?sub_category=evaluation.pricing_inquiry",
+                "sendHeaders": true,
+                "headerParameters": {
+                    "parameters": [
+                        {
+                            "name": "X-Internal-Key",
+                            "value": "dev-internal-key"
+                        },
+                        {
+                            "name": "Content-Type",
+                            "value": "application/json"
+                        }
+                    ]
+                },
+                "options": {
+                    "timeout": 5000
+                }
+            },
+            "id": "fetch-tpl-evaluation-pricing_inquiry",
+            "name": "Templates: evaluation.pricing_inquiry",
+            "type": "n8n-nodes-base.httpRequest",
+            "typeVersion": 4.2,
+            "position": [
+                1690,
+                420
+            ]
+        },
+        {
+            "parameters": {
+                "method": "GET",
+                "url": "=http://host.docker.internal:8080/v1/internal/bot-templates/{{ $('Prepare Context').first().json.bot_id }}?sub_category=evaluation.objection_price",
+                "sendHeaders": true,
+                "headerParameters": {
+                    "parameters": [
+                        {
+                            "name": "X-Internal-Key",
+                            "value": "dev-internal-key"
+                        },
+                        {
+                            "name": "Content-Type",
+                            "value": "application/json"
+                        }
+                    ]
+                },
+                "options": {
+                    "timeout": 5000
+                }
+            },
+            "id": "fetch-tpl-evaluation-objection_price",
+            "name": "Templates: evaluation.objection_price",
+            "type": "n8n-nodes-base.httpRequest",
+            "typeVersion": 4.2,
+            "position": [
+                1870,
+                420
+            ]
+        },
+        {
+            "parameters": {
+                "method": "GET",
+                "url": "=http://host.docker.internal:8080/v1/internal/bot-templates/{{ $('Prepare Context').first().json.bot_id }}?sub_category=evaluation.objection_compare",
+                "sendHeaders": true,
+                "headerParameters": {
+                    "parameters": [
+                        {
+                            "name": "X-Internal-Key",
+                            "value": "dev-internal-key"
+                        },
+                        {
+                            "name": "Content-Type",
+                            "value": "application/json"
+                        }
+                    ]
+                },
+                "options": {
+                    "timeout": 5000
+                }
+            },
+            "id": "fetch-tpl-evaluation-objection_compare",
+            "name": "Templates: evaluation.objection_compare",
+            "type": "n8n-nodes-base.httpRequest",
+            "typeVersion": 4.2,
+            "position": [
+                2050,
+                420
+            ]
+        },
+        {
+            "parameters": {
+                "method": "GET",
+                "url": "=http://host.docker.internal:8080/v1/internal/bot-templates/{{ $('Prepare Context').first().json.bot_id }}?sub_category=evaluation.objection_risk",
+                "sendHeaders": true,
+                "headerParameters": {
+                    "parameters": [
+                        {
+                            "name": "X-Internal-Key",
+                            "value": "dev-internal-key"
+                        },
+                        {
+                            "name": "Content-Type",
+                            "value": "application/json"
+                        }
+                    ]
+                },
+                "options": {
+                    "timeout": 5000
+                }
+            },
+            "id": "fetch-tpl-evaluation-objection_risk",
+            "name": "Templates: evaluation.objection_risk",
+            "type": "n8n-nodes-base.httpRequest",
+            "typeVersion": 4.2,
+            "position": [
+                1330,
+                540
+            ]
+        },
+        {
+            "parameters": {
+                "method": "GET",
+                "url": "=http://host.docker.internal:8080/v1/internal/bot-templates/{{ $('Prepare Context').first().json.bot_id }}?sub_category=evaluation.objection_authority",
+                "sendHeaders": true,
+                "headerParameters": {
+                    "parameters": [
+                        {
+                            "name": "X-Internal-Key",
+                            "value": "dev-internal-key"
+                        },
+                        {
+                            "name": "Content-Type",
+                            "value": "application/json"
+                        }
+                    ]
+                },
+                "options": {
+                    "timeout": 5000
+                }
+            },
+            "id": "fetch-tpl-evaluation-objection_authority",
+            "name": "Templates: evaluation.objection_authority",
+            "type": "n8n-nodes-base.httpRequest",
+            "typeVersion": 4.2,
+            "position": [
+                1510,
+                540
+            ]
+        },
+        {
+            "parameters": {
+                "method": "GET",
+                "url": "=http://host.docker.internal:8080/v1/internal/bot-templates/{{ $('Prepare Context').first().json.bot_id }}?sub_category=evaluation.objection_urgency",
+                "sendHeaders": true,
+                "headerParameters": {
+                    "parameters": [
+                        {
+                            "name": "X-Internal-Key",
+                            "value": "dev-internal-key"
+                        },
+                        {
+                            "name": "Content-Type",
+                            "value": "application/json"
+                        }
+                    ]
+                },
+                "options": {
+                    "timeout": 5000
+                }
+            },
+            "id": "fetch-tpl-evaluation-objection_urgency",
+            "name": "Templates: evaluation.objection_urgency",
+            "type": "n8n-nodes-base.httpRequest",
+            "typeVersion": 4.2,
+            "position": [
+                1690,
+                540
+            ]
+        },
+        {
+            "parameters": {
+                "method": "GET",
+                "url": "=http://host.docker.internal:8080/v1/internal/bot-templates/{{ $('Prepare Context').first().json.bot_id }}?sub_category=conversion.soft",
+                "sendHeaders": true,
+                "headerParameters": {
+                    "parameters": [
+                        {
+                            "name": "X-Internal-Key",
+                            "value": "dev-internal-key"
+                        },
+                        {
+                            "name": "Content-Type",
+                            "value": "application/json"
+                        }
+                    ]
+                },
+                "options": {
+                    "timeout": 5000
+                }
+            },
+            "id": "fetch-tpl-conversion-soft",
+            "name": "Templates: conversion.soft",
+            "type": "n8n-nodes-base.httpRequest",
+            "typeVersion": 4.2,
+            "position": [
+                1870,
+                540
+            ]
+        },
+        {
+            "parameters": {
+                "method": "GET",
+                "url": "=http://host.docker.internal:8080/v1/internal/bot-templates/{{ $('Prepare Context').first().json.bot_id }}?sub_category=conversion.transaction",
+                "sendHeaders": true,
+                "headerParameters": {
+                    "parameters": [
+                        {
+                            "name": "X-Internal-Key",
+                            "value": "dev-internal-key"
+                        },
+                        {
+                            "name": "Content-Type",
+                            "value": "application/json"
+                        }
+                    ]
+                },
+                "options": {
+                    "timeout": 5000
+                }
+            },
+            "id": "fetch-tpl-conversion-transaction",
+            "name": "Templates: conversion.transaction",
+            "type": "n8n-nodes-base.httpRequest",
+            "typeVersion": 4.2,
+            "position": [
+                2050,
+                540
+            ]
+        },
+        {
+            "parameters": {
+                "method": "GET",
+                "url": "=http://host.docker.internal:8080/v1/internal/bot-templates/{{ $('Prepare Context').first().json.bot_id }}?sub_category=conversion.confirm",
+                "sendHeaders": true,
+                "headerParameters": {
+                    "parameters": [
+                        {
+                            "name": "X-Internal-Key",
+                            "value": "dev-internal-key"
+                        },
+                        {
+                            "name": "Content-Type",
+                            "value": "application/json"
+                        }
+                    ]
+                },
+                "options": {
+                    "timeout": 5000
+                }
+            },
+            "id": "fetch-tpl-conversion-confirm",
+            "name": "Templates: conversion.confirm",
+            "type": "n8n-nodes-base.httpRequest",
+            "typeVersion": 4.2,
+            "position": [
+                1330,
+                660
+            ]
+        },
+        {
+            "parameters": {
+                "method": "GET",
+                "url": "=http://host.docker.internal:8080/v1/internal/bot-templates/{{ $('Prepare Context').first().json.bot_id }}?sub_category=retention.complaint_service",
+                "sendHeaders": true,
+                "headerParameters": {
+                    "parameters": [
+                        {
+                            "name": "X-Internal-Key",
+                            "value": "dev-internal-key"
+                        },
+                        {
+                            "name": "Content-Type",
+                            "value": "application/json"
+                        }
+                    ]
+                },
+                "options": {
+                    "timeout": 5000
+                }
+            },
+            "id": "fetch-tpl-retention-complaint_service",
+            "name": "Templates: retention.complaint_service",
+            "type": "n8n-nodes-base.httpRequest",
+            "typeVersion": 4.2,
+            "position": [
+                1510,
+                660
+            ]
+        },
+        {
+            "parameters": {
+                "method": "GET",
+                "url": "=http://host.docker.internal:8080/v1/internal/bot-templates/{{ $('Prepare Context').first().json.bot_id }}?sub_category=retention.complaint_refund",
+                "sendHeaders": true,
+                "headerParameters": {
+                    "parameters": [
+                        {
+                            "name": "X-Internal-Key",
+                            "value": "dev-internal-key"
+                        },
+                        {
+                            "name": "Content-Type",
+                            "value": "application/json"
+                        }
+                    ]
+                },
+                "options": {
+                    "timeout": 5000
+                }
+            },
+            "id": "fetch-tpl-retention-complaint_refund",
+            "name": "Templates: retention.complaint_refund",
+            "type": "n8n-nodes-base.httpRequest",
+            "typeVersion": 4.2,
+            "position": [
+                1690,
+                660
+            ]
+        },
+        {
+            "parameters": {
+                "method": "GET",
+                "url": "=http://host.docker.internal:8080/v1/internal/bot-templates/{{ $('Prepare Context').first().json.bot_id }}?sub_category=retention.progress_inquiry",
+                "sendHeaders": true,
+                "headerParameters": {
+                    "parameters": [
+                        {
+                            "name": "X-Internal-Key",
+                            "value": "dev-internal-key"
+                        },
+                        {
+                            "name": "Content-Type",
+                            "value": "application/json"
+                        }
+                    ]
+                },
+                "options": {
+                    "timeout": 5000
+                }
+            },
+            "id": "fetch-tpl-retention-progress_inquiry",
+            "name": "Templates: retention.progress_inquiry",
+            "type": "n8n-nodes-base.httpRequest",
+            "typeVersion": 4.2,
+            "position": [
+                1870,
+                660
+            ]
+        },
+        {
+            "parameters": {
+                "method": "GET",
+                "url": "=http://host.docker.internal:8080/v1/internal/bot-templates/{{ $('Prepare Context').first().json.bot_id }}?sub_category=retention.reschedule",
+                "sendHeaders": true,
+                "headerParameters": {
+                    "parameters": [
+                        {
+                            "name": "X-Internal-Key",
+                            "value": "dev-internal-key"
+                        },
+                        {
+                            "name": "Content-Type",
+                            "value": "application/json"
+                        }
+                    ]
+                },
+                "options": {
+                    "timeout": 5000
+                }
+            },
+            "id": "fetch-tpl-retention-reschedule",
+            "name": "Templates: retention.reschedule",
+            "type": "n8n-nodes-base.httpRequest",
+            "typeVersion": 4.2,
+            "position": [
+                2050,
+                660
+            ]
         }
     ],
     "connections": {
@@ -667,7 +1735,7 @@
             "main": [
                 [
                     {
-                        "node": "Intent Classifier",
+                        "node": "Check Contact Status",
                         "type": "main",
                         "index": 0
                     }
@@ -689,7 +1757,7 @@
             "main": [
                 [
                     {
-                        "node": "Parse Classifier",
+                        "node": "Merge Intent",
                         "type": "main",
                         "index": 0
                     }
@@ -858,6 +1926,403 @@
                 [
                     {
                         "node": "Respond Error",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Check Contact Status": {
+            "main": [
+                [
+                    {
+                        "node": "Intent Classifier",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "AWS Bedrock Nova Lite": {
+            "ai_languageModel": [
+                [
+                    {
+                        "node": "Intent Classifier",
+                        "type": "ai_languageModel",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Merge Intent": {
+            "main": [
+                [
+                    {
+                        "node": "Route Intent",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Route Intent": {
+            "main": [
+                [
+                    {
+                        "node": "Templates: engagement.greeting_new",
+                        "type": "main",
+                        "index": 0
+                    }
+                ],
+                [
+                    {
+                        "node": "Templates: engagement.greeting_return",
+                        "type": "main",
+                        "index": 0
+                    }
+                ],
+                [
+                    {
+                        "node": "Templates: engagement.time_inquiry",
+                        "type": "main",
+                        "index": 0
+                    }
+                ],
+                [
+                    {
+                        "node": "Templates: discovery.program_detail",
+                        "type": "main",
+                        "index": 0
+                    }
+                ],
+                [
+                    {
+                        "node": "Templates: discovery.schedule_location",
+                        "type": "main",
+                        "index": 0
+                    }
+                ],
+                [
+                    {
+                        "node": "Templates: discovery.tutor_profile",
+                        "type": "main",
+                        "index": 0
+                    }
+                ],
+                [
+                    {
+                        "node": "Templates: discovery.curriculum",
+                        "type": "main",
+                        "index": 0
+                    }
+                ],
+                [
+                    {
+                        "node": "Templates: evaluation.pricing_inquiry",
+                        "type": "main",
+                        "index": 0
+                    }
+                ],
+                [
+                    {
+                        "node": "Templates: evaluation.objection_price",
+                        "type": "main",
+                        "index": 0
+                    }
+                ],
+                [
+                    {
+                        "node": "Templates: evaluation.objection_compare",
+                        "type": "main",
+                        "index": 0
+                    }
+                ],
+                [
+                    {
+                        "node": "Templates: evaluation.objection_risk",
+                        "type": "main",
+                        "index": 0
+                    }
+                ],
+                [
+                    {
+                        "node": "Templates: evaluation.objection_authority",
+                        "type": "main",
+                        "index": 0
+                    }
+                ],
+                [
+                    {
+                        "node": "Templates: evaluation.objection_urgency",
+                        "type": "main",
+                        "index": 0
+                    }
+                ],
+                [
+                    {
+                        "node": "Templates: conversion.soft",
+                        "type": "main",
+                        "index": 0
+                    }
+                ],
+                [
+                    {
+                        "node": "Templates: conversion.transaction",
+                        "type": "main",
+                        "index": 0
+                    }
+                ],
+                [
+                    {
+                        "node": "Templates: conversion.confirm",
+                        "type": "main",
+                        "index": 0
+                    }
+                ],
+                [
+                    {
+                        "node": "Templates: retention.complaint_service",
+                        "type": "main",
+                        "index": 0
+                    }
+                ],
+                [
+                    {
+                        "node": "Templates: retention.complaint_refund",
+                        "type": "main",
+                        "index": 0
+                    }
+                ],
+                [
+                    {
+                        "node": "Templates: retention.progress_inquiry",
+                        "type": "main",
+                        "index": 0
+                    }
+                ],
+                [
+                    {
+                        "node": "Templates: retention.reschedule",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Templates: engagement.greeting_new": {
+            "main": [
+                [
+                    {
+                        "node": "Prepare Context",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Templates: engagement.greeting_return": {
+            "main": [
+                [
+                    {
+                        "node": "Prepare Context",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Templates: engagement.time_inquiry": {
+            "main": [
+                [
+                    {
+                        "node": "Prepare Context",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Templates: discovery.program_detail": {
+            "main": [
+                [
+                    {
+                        "node": "Prepare Context",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Templates: discovery.schedule_location": {
+            "main": [
+                [
+                    {
+                        "node": "Prepare Context",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Templates: discovery.tutor_profile": {
+            "main": [
+                [
+                    {
+                        "node": "Prepare Context",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Templates: discovery.curriculum": {
+            "main": [
+                [
+                    {
+                        "node": "Prepare Context",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Templates: evaluation.pricing_inquiry": {
+            "main": [
+                [
+                    {
+                        "node": "Prepare Context",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Templates: evaluation.objection_price": {
+            "main": [
+                [
+                    {
+                        "node": "Prepare Context",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Templates: evaluation.objection_compare": {
+            "main": [
+                [
+                    {
+                        "node": "Prepare Context",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Templates: evaluation.objection_risk": {
+            "main": [
+                [
+                    {
+                        "node": "Prepare Context",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Templates: evaluation.objection_authority": {
+            "main": [
+                [
+                    {
+                        "node": "Prepare Context",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Templates: evaluation.objection_urgency": {
+            "main": [
+                [
+                    {
+                        "node": "Prepare Context",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Templates: conversion.soft": {
+            "main": [
+                [
+                    {
+                        "node": "Prepare Context",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Templates: conversion.transaction": {
+            "main": [
+                [
+                    {
+                        "node": "Prepare Context",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Templates: conversion.confirm": {
+            "main": [
+                [
+                    {
+                        "node": "Prepare Context",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Templates: retention.complaint_service": {
+            "main": [
+                [
+                    {
+                        "node": "Prepare Context",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Templates: retention.complaint_refund": {
+            "main": [
+                [
+                    {
+                        "node": "Prepare Context",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Templates: retention.progress_inquiry": {
+            "main": [
+                [
+                    {
+                        "node": "Prepare Context",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Templates: retention.reschedule": {
+            "main": [
+                [
+                    {
+                        "node": "Prepare Context",
                         "type": "main",
                         "index": 0
                     }

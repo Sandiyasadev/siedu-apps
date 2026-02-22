@@ -637,20 +637,67 @@ router.get('/kb-file/:sourceId', asyncHandler(async (req, res) => {
 
 // ============================================
 // GET /v1/internal/bot-templates/:botId
-// n8n fetches active templates for a bot
+// n8n fetches templates for a bot
+// Optional: ?sub_category=evaluation.objection_price
+// Optional: ?category=objection (legacy, broad filter)
 // ============================================
 router.get('/bot-templates/:botId', asyncHandler(async (req, res) => {
     const { botId } = req.params;
+    const { sub_category, category } = req.query;
 
     const result = await query(
-        `SELECT id, name, content, category, shortcut
+        `SELECT id, name, content, category, sub_category, shortcut
          FROM templates
-         WHERE bot_id = $1 AND is_active = true
-         ORDER BY category, use_count DESC`,
-        [botId]
+         WHERE bot_id = $1
+           AND is_active = true
+           AND ($2::text IS NULL OR sub_category = $2)
+           AND ($3::text IS NULL OR category = $3)
+         ORDER BY use_count DESC
+         LIMIT 3`,
+        [botId, sub_category || null, category || null]
     );
 
-    res.json({ templates: result.rows });
+    res.json({ templates: result.rows, intent: sub_category || category || 'all' });
+}));
+
+// ============================================
+// POST /v1/internal/templates/bulk
+// n8n bulk-inserts generated templates for a bot
+// ============================================
+router.post('/templates/bulk', asyncHandler(async (req, res) => {
+    const { bot_id, templates } = req.body;
+
+    if (!bot_id || !Array.isArray(templates) || templates.length === 0) {
+        return res.status(400).json({ error: 'bot_id and templates array are required' });
+    }
+
+    // Verify bot exists
+    const botCheck = await query('SELECT id FROM bots WHERE id = $1', [bot_id]);
+    if (botCheck.rows.length === 0) {
+        return res.status(404).json({ error: 'Bot not found' });
+    }
+
+    let created = 0;
+    const errors = [];
+
+    for (const t of templates) {
+        if (!t.name || !t.content) {
+            errors.push(`Skipped: missing name or content`);
+            continue;
+        }
+        try {
+            await query(
+                `INSERT INTO templates (bot_id, name, content, category, shortcut)
+                 VALUES ($1, $2, $3, $4, $5)`,
+                [bot_id, t.name, t.content, t.category || 'general', t.shortcut || null]
+            );
+            created++;
+        } catch (err) {
+            errors.push(`Failed "${t.name}": ${err.message}`);
+        }
+    }
+
+    res.json({ created, total: templates.length, errors });
 }));
 
 module.exports = router;

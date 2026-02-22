@@ -1,0 +1,343 @@
+{
+    "name": "Template Generator — Iterative CS",
+    "nodes": [
+        {
+            "parameters": {
+                "formTitle": "Template Generator — CS Response",
+                "formDescription": "Masukkan profil bisnis. AI akan generate template pesan CS per kategori secara iteratif (lebih berkualitas).",
+                "formFields": {
+                    "values": [
+                        {
+                            "fieldLabel": "Nama Bisnis",
+                            "fieldType": "text",
+                            "requiredField": true,
+                            "placeholder": "Contoh: Toko Sepatu Mantap"
+                        },
+                        {
+                            "fieldLabel": "Jenis Usaha",
+                            "fieldType": "dropdown",
+                            "requiredField": true,
+                            "fieldOptions": {
+                                "values": [
+                                    {
+                                        "option": "e-commerce"
+                                    },
+                                    {
+                                        "option": "jasa-profesional"
+                                    },
+                                    {
+                                        "option": "F&B (makanan & minuman)"
+                                    },
+                                    {
+                                        "option": "kesehatan & kecantikan"
+                                    },
+                                    {
+                                        "option": "edukasi & kursus"
+                                    },
+                                    {
+                                        "option": "properti"
+                                    },
+                                    {
+                                        "option": "otomotif"
+                                    },
+                                    {
+                                        "option": "travel & wisata"
+                                    },
+                                    {
+                                        "option": "lainnya"
+                                    }
+                                ]
+                            }
+                        },
+                        {
+                            "fieldLabel": "Gaya Bahasa",
+                            "fieldType": "dropdown",
+                            "requiredField": true,
+                            "fieldOptions": {
+                                "values": [
+                                    {
+                                        "option": "casual-whatsapp (santai, pakai emoji)"
+                                    },
+                                    {
+                                        "option": "friendly-formal (ramah tapi sopan)"
+                                    },
+                                    {
+                                        "option": "formal-profesional (serius, tanpa emoji)"
+                                    }
+                                ]
+                            }
+                        },
+                        {
+                            "fieldLabel": "Produk/Layanan Utama",
+                            "fieldType": "textarea",
+                            "requiredField": true,
+                            "placeholder": "Sebutkan 3-5 produk/layanan utama, pisahkan dengan koma.\nContoh: Sepatu sneakers lokal, sandal kulit premium, tas ransel anti air"
+                        },
+                        {
+                            "fieldLabel": "Info Tambahan",
+                            "fieldType": "textarea",
+                            "requiredField": false,
+                            "placeholder": "Opsional: jam buka, link order, garansi, promo aktif, dll.\nContoh: Jam buka 09:00-21:00, free ongkir min 100rb, garansi 30 hari"
+                        }
+                    ]
+                },
+                "options": {
+                    "respondWithData": false
+                }
+            },
+            "id": "form-trigger",
+            "name": "Input Profil Bisnis",
+            "type": "n8n-nodes-base.formTrigger",
+            "typeVersion": 2.5,
+            "position": [
+                -400,
+                300
+            ],
+            "webhookId": "template-generator"
+        },
+        {
+            "parameters": {
+                "jsCode": "const form = $input.first().json;\n\nconst profile = {\n  nama: form['Nama Bisnis'],\n  jenis: form['Jenis Usaha'],\n  gaya: form['Gaya Bahasa'],\n  produk: form['Produk/Layanan Utama'],\n  info: form['Info Tambahan'] || 'Tidak ada info tambahan.'\n};\n\nconst categories = [\n  {\n    category: 'greeting',\n    label: 'Sapaan & Pembuka',\n    description: 'Template pesan pertama saat pelanggan baru memulai chat. Tujuannya membangun kesan pertama yang positif dan mengajak pelanggan menyampaikan kebutuhannya.',\n    angles: ['Ramah & antusias dengan emoji', 'Profesional & to-the-point', 'Membangun kedekatan personal', 'Menyapa + langsung tanya kebutuhan', 'Menyapa berdasarkan waktu (pagi/siang/malam)'],\n    count: 7\n  },\n  {\n    category: 'pricing',\n    label: 'Info Harga & Penawaran',\n    description: 'Template untuk menyampaikan harga produk/layanan. Harus meyakinkan pelanggan bahwa harga sebanding dengan kualitas.',\n    angles: ['Fokus harga terjangkau/diskon', 'Fokus value & kualitas premium', 'Fokus garansi & keamanan belanja', 'Perbandingan dengan kompetitor', 'Bundling & paket hemat'],\n    count: 7\n  },\n  {\n    category: 'info',\n    label: 'Info Produk, Stok & Fitur',\n    description: 'Template untuk memberikan informasi detail tentang produk: fitur, ketersediaan stok, varian, dan keunggulan.',\n    angles: ['Deskripsi fitur utama', 'Stok tersedia & urgensi', 'Stok kosong & alternatif', 'Perbandingan antar varian', 'Testimoni & social proof'],\n    count: 7\n  },\n  {\n    category: 'objection',\n    label: 'Handling Keberatan',\n    description: 'Template untuk menangani keberatan pelanggan (harga terlalu mahal, ragu kualitas, takut penipuan, dll). Harus empatis dan meyakinkan.',\n    angles: ['Empati + penjelasan value', 'Social proof & testimoni', 'Garansi & jaminan keamanan', 'Perbandingan harga vs manfaat'],\n    count: 5\n  },\n  {\n    category: 'conversion',\n    label: 'Ajakan Order / CTA',\n    description: 'Template Call-to-Action untuk mengajak pelanggan melakukan pemesanan. Harus sopan tapi persuasif.',\n    angles: ['Soft selling (ajakan lembut)', 'Urgency (stok/promo terbatas)', 'Kemudahan proses order', 'Follow-up setelah konsultasi'],\n    count: 5\n  },\n  {\n    category: 'closing',\n    label: 'Penutup Percakapan',\n    description: 'Template untuk mengakhiri percakapan dengan kesan baik. Bisa setelah transaksi selesai atau setelah menjawab pertanyaan.',\n    angles: ['Terima kasih hangat', 'Tawaran bantuan lanjutan', 'Ucapan doa/harapan baik', 'Reminder untuk kembali lagi'],\n    count: 5\n  },\n  {\n    category: 'complaint',\n    label: 'Penanganan Keluhan',\n    description: 'Template untuk merespons keluhan/komplain pelanggan. Harus menunjukkan empati tinggi, permintaan maaf, dan solusi konkret.',\n    angles: ['Empati + permintaan maaf', 'Solusi langsung + timeline', 'Eskalasi ke tim terkait', 'Follow-up setelah penyelesaian'],\n    count: 5\n  }\n];\n\n// Output 7 items, satu per kategori\nreturn categories.map(cat => ({\n  json: {\n    ...cat,\n    profile\n  }\n}));"
+            },
+            "id": "set-categories",
+            "name": "Set Categories",
+            "type": "n8n-nodes-base.code",
+            "typeVersion": 2,
+            "position": [
+                -140,
+                300
+            ]
+        },
+        {
+            "parameters": {
+                "batchSize": 1,
+                "options": {}
+            },
+            "id": "loop",
+            "name": "Loop Categories",
+            "type": "n8n-nodes-base.splitInBatches",
+            "typeVersion": 3,
+            "position": [
+                100,
+                300
+            ]
+        },
+        {
+            "parameters": {
+                "jsCode": "const item = $input.first().json;\nconst p = item.profile;\n\nconst systemPrompt = `Kamu adalah Spesialis Copywriter Customer Service WhatsApp/Telegram.\n\nPROFIL BISNIS:\n- Nama: ${p.nama}\n- Jenis: ${p.jenis}\n- Gaya Bahasa: ${p.gaya}\n- Produk/Layanan: ${p.produk}\n- Info Tambahan: ${p.info}\n\nTUGAS: Buat ${item.count} template pesan untuk kategori \"${item.label}\".\nDeskripsi kategori: ${item.description}\n\nSUDUT PANDANG (ANGLES) — Gunakan angle yang berbeda untuk setiap variasi:\n${item.angles.map((a, i) => `${i+1}. ${a}`).join('\\n')}\n\nATURAN:\n1. Setiap variasi HARUS punya nada/struktur kalimat yang BERBEDA SIGNIFIKAN\n2. Gunakan placeholder {variabel} untuk data dinamis: {nama_produk}, {harga}, {link_order}, {jam_buka}, {nama_pelanggan}, {masalah}\n3. Gaya bahasa KONSISTEN: ${p.gaya}\n4. Panjang template: 1-4 kalimat (cocok chat)\n5. JANGAN gunakan numbering/bullet di dalam isi template\n6. JANGAN tambahkan penjelasan apapun, HANYA isi template\n\nFORMAT OUTPUT (WAJIB IKUTI PERSIS):\nUntuk setiap template, tulis PERSIS format ini:\n\n---\n**Nama:** [Nama singkat template]\n**Angle:** [Angle yang dipakai]\n**Isi:**\n[Isi template pesan di sini]\n---\n\nMulai sekarang, tulis ${item.count} template.`;\n\nreturn [{\n  json: {\n    category: item.category,\n    label: item.label,\n    count: item.count,\n    systemPrompt,\n    userPrompt: `Buat ${item.count} template pesan CS untuk kategori \"${item.label}\" bisnis \"${p.nama}\". Gunakan format yang diminta.`\n  }\n}];"
+            },
+            "id": "build-prompt",
+            "name": "Build Prompt",
+            "type": "n8n-nodes-base.code",
+            "typeVersion": 2,
+            "position": [
+                340,
+                300
+            ]
+        },
+        {
+            "parameters": {
+                "inputSource": "passthrough",
+                "promptType": "define",
+                "text": "={{ $json.userPrompt }}",
+                "options": {
+                    "systemMessage": "={{ $json.systemPrompt }}",
+                    "temperature": 0.7
+                }
+            },
+            "id": "nova-pro-gen",
+            "name": "Nova Pro Generator",
+            "type": "@n8n/n8n-nodes-langchain.chainLlm",
+            "typeVersion": 1.4,
+            "position": [
+                580,
+                300
+            ]
+        },
+        {
+            "parameters": {
+                "model": "amazon.nova-pro-v1:0",
+                "options": {
+                    "temperature": 0.7
+                }
+            },
+            "id": "bedrock-llm",
+            "name": "AWS Bedrock Nova Pro",
+            "type": "@n8n/n8n-nodes-langchain.lmChatAwsBedrock",
+            "typeVersion": 1.1,
+            "position": [
+                580,
+                520
+            ],
+            "credentials": {
+                "aws": {
+                    "id": "w1WID0kdD8RQoTjj",
+                    "name": "us-api"
+                }
+            }
+        },
+        {
+            "parameters": {
+                "jsCode": "const raw = $input.first().json.text || $input.first().json.response?.text || $input.first().json.output || '';\nconst category = $('Build Prompt').first().json.category;\nconst label = $('Build Prompt').first().json.label;\n\n// Build markdown section for this category\nlet section = `\\n## ${label} (${category})\\n\\n`;\nsection += raw.trim();\nsection += '\\n\\n';\n\nreturn [{\n  json: {\n    category,\n    label,\n    markdown_section: section\n  }\n}];"
+            },
+            "id": "format-md",
+            "name": "Format Markdown",
+            "type": "n8n-nodes-base.code",
+            "typeVersion": 2,
+            "position": [
+                820,
+                300
+            ]
+        },
+        {
+            "parameters": {
+                "jsCode": "// Collect all markdown sections from all loop iterations\nconst items = $input.all();\nconst form = $('Input Profil Bisnis').first().json;\n\nconst nama = form['Nama Bisnis'];\nconst jenis = form['Jenis Usaha'];\nconst gaya = form['Gaya Bahasa'];\nconst produk = form['Produk/Layanan Utama'];\nconst info = form['Info Tambahan'] || '-';\nconst tanggal = new Date().toLocaleDateString('id-ID', { year: 'numeric', month: 'long', day: 'numeric' });\n\nlet doc = `# Template Pesan CS — ${nama}\\n\\n`;\ndoc += `**Tanggal:** ${tanggal}\\n`;\ndoc += `**Jenis Usaha:** ${jenis}\\n`;\ndoc += `**Gaya Bahasa:** ${gaya}\\n`;\ndoc += `**Produk/Layanan:** ${produk}\\n`;\ndoc += `**Info Tambahan:** ${info}\\n`;\ndoc += `\\n---\\n`;\n\nfor (const item of items) {\n  doc += item.json.markdown_section || '';\n}\n\ndoc += `\\n---\\n*Dokumen ini di-generate otomatis oleh AI Template Generator.*\\n`;\n\nconst fileName = `templates_${nama.replace(/[^a-zA-Z0-9]/g, '_').toLowerCase()}_${new Date().toISOString().slice(0,10)}.md`;\n\nreturn [{\n  json: {\n    fileName,\n    totalCategories: items.length,\n    preview: doc.substring(0, 500) + '...'\n  },\n  binary: {\n    data: {\n      data: Buffer.from(doc, 'utf-8').toString('base64'),\n      mimeType: 'text/markdown',\n      fileName\n    }\n  }\n}];"
+            },
+            "id": "merge-doc",
+            "name": "Merge Document",
+            "type": "n8n-nodes-base.code",
+            "typeVersion": 2,
+            "position": [
+                100,
+                540
+            ]
+        },
+        {
+            "parameters": {
+                "formTitle": "Template Generation Selesai ✅",
+                "formDescription": "={{ $json.totalCategories }} kategori template berhasil di-generate! Download dokumennya di bawah.",
+                "formFields": {
+                    "values": [
+                        {
+                            "fieldLabel": "Status",
+                            "fieldType": "text",
+                            "fieldValue": "={{ $json.totalCategories }} kategori berhasil di-generate. File: {{ $json.fileName }}"
+                        }
+                    ]
+                },
+                "options": {}
+            },
+            "id": "form-response",
+            "name": "Form Response",
+            "type": "n8n-nodes-base.form",
+            "typeVersion": 1,
+            "position": [
+                340,
+                540
+            ]
+        }
+    ],
+    "connections": {
+        "Input Profil Bisnis": {
+            "main": [
+                [
+                    {
+                        "node": "Set Categories",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Set Categories": {
+            "main": [
+                [
+                    {
+                        "node": "Loop Categories",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Loop Categories": {
+            "main": [
+                [
+                    {
+                        "node": "Merge Document",
+                        "type": "main",
+                        "index": 0
+                    }
+                ],
+                [
+                    {
+                        "node": "Build Prompt",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Build Prompt": {
+            "main": [
+                [
+                    {
+                        "node": "Nova Pro Generator",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "AWS Bedrock Nova Pro": {
+            "ai_languageModel": [
+                [
+                    {
+                        "node": "Nova Pro Generator",
+                        "type": "ai_languageModel",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Nova Pro Generator": {
+            "main": [
+                [
+                    {
+                        "node": "Format Markdown",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Format Markdown": {
+            "main": [
+                [
+                    {
+                        "node": "Loop Categories",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Merge Document": {
+            "main": [
+                [
+                    {
+                        "node": "Form Response",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        }
+    },
+    "pinData": {},
+    "active": false,
+    "settings": {
+        "executionOrder": "v1"
+    },
+    "meta": {
+        "templateCredsSetupCompleted": true
+    },
+    "tags": [
+        {
+            "name": "templates"
+        },
+        {
+            "name": "generator"
+        }
+    ]
+}
