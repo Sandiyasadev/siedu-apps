@@ -27,7 +27,7 @@ function BotSettings() {
     const [templatesLoading, setTemplatesLoading] = useState(false)
     const [showTemplateModal, setShowTemplateModal] = useState(false)
     const [editingTemplate, setEditingTemplate] = useState(null)
-    const [templateForm, setTemplateForm] = useState({ name: '', content: '', category: 'general' })
+    const [templateForm, setTemplateForm] = useState({ name: '', content: '', category: 'general', sub_category: '' })
     const [templateSaving, setTemplateSaving] = useState(false)
     const [deleteTemplateId, setDeleteTemplateId] = useState(null)
     const [deletingTemplate, setDeletingTemplate] = useState(false)
@@ -55,13 +55,13 @@ function BotSettings() {
 
     const openCreateModal = () => {
         setEditingTemplate(null)
-        setTemplateForm({ name: '', content: '', category: 'general' })
+        setTemplateForm({ name: '', content: '', category: 'general', sub_category: '' })
         setShowTemplateModal(true)
     }
 
     const openEditModal = (t) => {
         setEditingTemplate(t)
-        setTemplateForm({ name: t.name, content: t.content, category: t.category || 'general' })
+        setTemplateForm({ name: t.name, content: t.content, category: t.category || 'general', sub_category: t.sub_category || '' })
         setShowTemplateModal(true)
     }
 
@@ -192,12 +192,44 @@ function BotSettings() {
     }
 
     const categoryColors = {
-        general: { bg: 'var(--gray-100)', color: 'var(--gray-600)' },
-        greeting: { bg: '#e0f2fe', color: '#0369a1' },
-        pricing: { bg: '#fef3c7', color: '#92400e' },
-        complaint: { bg: '#fee2e2', color: '#991b1b' },
-        closing: { bg: '#d1fae5', color: '#065f46' },
-        info: { bg: '#ede9fe', color: '#5b21b6' },
+        engagement: { bg: '#dcfce7', color: '#166534' },
+        discovery: { bg: '#e0f2fe', color: '#0369a1' },
+        evaluation: { bg: '#fef3c7', color: '#92400e' },
+        conversion: { bg: '#ede9fe', color: '#6d28d9' },
+        retention: { bg: '#fee2e2', color: '#991b1b' },
+    }
+
+    const INTENT_MAP = {
+        engagement: [
+            { value: 'engagement.greeting_new', label: 'greeting_new' },
+            { value: 'engagement.greeting_return', label: 'greeting_return' },
+            { value: 'engagement.time_inquiry', label: 'time_inquiry' },
+        ],
+        discovery: [
+            { value: 'discovery.program_detail', label: 'program_detail' },
+            { value: 'discovery.schedule_location', label: 'schedule_location' },
+            { value: 'discovery.tutor_profile', label: 'tutor_profile' },
+            { value: 'discovery.curriculum', label: 'curriculum' },
+        ],
+        evaluation: [
+            { value: 'evaluation.pricing_inquiry', label: 'pricing_inquiry' },
+            { value: 'evaluation.objection_price', label: 'objection_price' },
+            { value: 'evaluation.objection_compare', label: 'objection_compare' },
+            { value: 'evaluation.objection_risk', label: 'objection_risk' },
+            { value: 'evaluation.objection_authority', label: 'objection_authority' },
+            { value: 'evaluation.objection_urgency', label: 'objection_urgency' },
+        ],
+        conversion: [
+            { value: 'conversion.soft', label: 'soft' },
+            { value: 'conversion.transaction', label: 'transaction' },
+            { value: 'conversion.confirm', label: 'confirm' },
+        ],
+        retention: [
+            { value: 'retention.complaint_service', label: 'complaint_service' },
+            { value: 'retention.complaint_refund', label: 'complaint_refund' },
+            { value: 'retention.progress_inquiry', label: 'progress_inquiry' },
+            { value: 'retention.reschedule', label: 'reschedule' },
+        ],
     }
 
     return (
@@ -398,6 +430,19 @@ function BotSettings() {
                                                 }}>
                                                     {t.category || 'general'}
                                                 </span>
+                                                {t.sub_category && (
+                                                    <span style={{
+                                                        fontSize: 'var(--font-size-xs)',
+                                                        padding: '2px 8px',
+                                                        borderRadius: '12px',
+                                                        background: '#f0fdf4',
+                                                        color: '#16a34a',
+                                                        fontWeight: 500,
+                                                        fontFamily: 'monospace'
+                                                    }}>
+                                                        {t.sub_category}
+                                                    </span>
+                                                )}
                                                 {t.use_count > 0 && (
                                                     <span style={{
                                                         fontSize: 'var(--font-size-xs)',
@@ -559,20 +604,39 @@ function BotSettings() {
                             />
                         </div>
 
-                        <div className="form-group">
-                            <label className="form-label">Kategori</label>
-                            <select
-                                className="form-input"
-                                value={templateForm.category}
-                                onChange={e => setTemplateForm({ ...templateForm, category: e.target.value })}
-                            >
-                                <option value="general">General</option>
-                                <option value="greeting">Greeting</option>
-                                <option value="pricing">Pricing</option>
-                                <option value="complaint">Complaint</option>
-                                <option value="info">Info</option>
-                                <option value="closing">Closing</option>
-                            </select>
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 'var(--space-3)' }}>
+                            <div className="form-group" style={{ margin: 0 }}>
+                                <label className="form-label">Fase / Kategori</label>
+                                <select
+                                    className="form-input"
+                                    value={templateForm.category}
+                                    onChange={e => setTemplateForm({ ...templateForm, category: e.target.value, sub_category: '' })}
+                                >
+                                    <option value="">— Pilih Fase —</option>
+                                    <option value="engagement">🟢 Engagement (Sapaan)</option>
+                                    <option value="discovery">🔵 Discovery (Info Jasa)</option>
+                                    <option value="evaluation">🟡 Evaluation (Harga &amp; Keberatan)</option>
+                                    <option value="conversion">🟣 Conversion (Ajakan Order)</option>
+                                    <option value="retention">🔴 Retention (CS &amp; Komplain)</option>
+                                </select>
+                            </div>
+                            <div className="form-group" style={{ margin: 0 }}>
+                                <label className="form-label" style={{ color: !templateForm.category ? 'var(--gray-300)' : undefined }}>
+                                    Intent (Sub-Kategori)
+                                </label>
+                                <select
+                                    className="form-input"
+                                    value={templateForm.sub_category}
+                                    disabled={!templateForm.category}
+                                    onChange={e => setTemplateForm({ ...templateForm, sub_category: e.target.value })}
+                                    style={{ opacity: !templateForm.category ? 0.45 : 1, cursor: !templateForm.category ? 'not-allowed' : 'pointer' }}
+                                >
+                                    <option value="">{templateForm.category ? '— Pilih Intent —' : '← Pilih Fase dulu'}</option>
+                                    {(INTENT_MAP[templateForm.category] || []).map(opt => (
+                                        <option key={opt.value} value={opt.value}>{opt.label}</option>
+                                    ))}
+                                </select>
+                            </div>
                         </div>
 
                         <div className="form-group">
