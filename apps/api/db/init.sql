@@ -194,6 +194,7 @@ CREATE TABLE IF NOT EXISTS templates (
     name VARCHAR(255) NOT NULL,
     content TEXT NOT NULL,
     category VARCHAR(100) DEFAULT 'general',
+    sub_category VARCHAR(100),
     shortcut VARCHAR(50),
     is_active BOOLEAN DEFAULT true,
     use_count INTEGER DEFAULT 0,
@@ -202,6 +203,50 @@ CREATE TABLE IF NOT EXISTS templates (
 );
 
 CREATE INDEX IF NOT EXISTS idx_templates_bot ON templates(bot_id);
+CREATE INDEX IF NOT EXISTS idx_templates_sub_cat ON templates(bot_id, sub_category) WHERE sub_category IS NOT NULL;
+
+CREATE TABLE IF NOT EXISTS template_categories (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    bot_id UUID NOT NULL REFERENCES bots(id) ON DELETE CASCADE,
+    key VARCHAR(100) NOT NULL,
+    label VARCHAR(255) NOT NULL,
+    description TEXT,
+    sort_order INTEGER NOT NULL DEFAULT 0,
+    is_active BOOLEAN NOT NULL DEFAULT true,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW(),
+    UNIQUE (bot_id, key)
+);
+
+CREATE INDEX IF NOT EXISTS idx_template_categories_bot
+    ON template_categories(bot_id, is_active, sort_order);
+
+CREATE TABLE IF NOT EXISTS template_subcategories (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    bot_id UUID NOT NULL REFERENCES bots(id) ON DELETE CASCADE,
+    category_key VARCHAR(100) NOT NULL,
+    key VARCHAR(100) NOT NULL,
+    label VARCHAR(255) NOT NULL,
+    description TEXT,
+    reply_mode VARCHAR(20) NOT NULL DEFAULT 'continuation',
+    greeting_policy VARCHAR(20) NOT NULL DEFAULT 'forbidden',
+    default_template_count INTEGER NOT NULL DEFAULT 3,
+    strategy_pool JSONB NOT NULL DEFAULT '[]'::jsonb,
+    sort_order INTEGER NOT NULL DEFAULT 0,
+    is_active BOOLEAN NOT NULL DEFAULT true,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW(),
+    UNIQUE (bot_id, key),
+    CONSTRAINT chk_template_subcategories_reply_mode
+        CHECK (reply_mode IN ('opening', 'mixed', 'continuation')),
+    CONSTRAINT chk_template_subcategories_greeting_policy
+        CHECK (greeting_policy IN ('required', 'optional_short', 'forbidden')),
+    CONSTRAINT chk_template_subcategories_default_count
+        CHECK (default_template_count > 0)
+);
+
+CREATE INDEX IF NOT EXISTS idx_template_subcategories_bot
+    ON template_subcategories(bot_id, is_active, category_key, sort_order);
 
 -- ============================================
 -- KB SOURCES

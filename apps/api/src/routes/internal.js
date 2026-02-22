@@ -519,6 +519,7 @@ const parsePositiveInt = (value, fallback) => {
 
 const INTERNAL_BOT_CONFIG_CACHE_TTL = parsePositiveInt(process.env.INTERNAL_BOT_CONFIG_CACHE_TTL, 300);
 const INTERNAL_TEMPLATE_CACHE_TTL = parsePositiveInt(process.env.INTERNAL_TEMPLATE_CACHE_TTL, 60);
+const INTERNAL_TEMPLATE_TAXONOMY_CACHE_TTL = parsePositiveInt(process.env.INTERNAL_TEMPLATE_TAXONOMY_CACHE_TTL, 60);
 const CONTACT_CONTINUATION_WINDOW_MINUTES = parsePositiveInt(process.env.CONTACT_CONTINUATION_WINDOW_MINUTES, 15);
 const CONTACT_RETURNING_THRESHOLD_MINUTES = parsePositiveInt(process.env.CONTACT_RETURNING_THRESHOLD_MINUTES, 24 * 60);
 
@@ -831,6 +832,95 @@ router.get('/kb-file/:sourceId', asyncHandler(async (req, res) => {
 }));
 
 // ============================================
+// GET /v1/internal/template-taxonomy/:botId
+// n8n fetches active template taxonomy (category + subcategory metadata)
+// ============================================
+router.get('/template-taxonomy/:botId', asyncHandler(async (req, res) => {
+    const { botId } = req.params;
+    const includeInactive = ['1', 'true', 'yes'].includes(String(req.query.include_inactive || '').toLowerCase());
+
+    const payload = await getOrSet(
+        `internal:template-taxonomy:${botId}:all:${includeInactive ? '1' : '0'}`,
+        async () => {
+            let categoriesResult;
+            let subcategoriesResult;
+            try {
+                categoriesResult = await query(
+                    `
+                    SELECT id, bot_id, key, label, description, sort_order, is_active, created_at, updated_at
+                    FROM template_categories
+                    WHERE bot_id = $1
+                      AND ($2::boolean = true OR is_active = true)
+                    ORDER BY sort_order ASC, label ASC, key ASC
+                    `,
+                    [botId, includeInactive]
+                );
+
+                subcategoriesResult = await query(
+                    `
+                    SELECT
+                        s.id, s.bot_id, s.category_key, s.key, s.label, s.description,
+                        s.reply_mode, s.greeting_policy, s.default_template_count,
+                        s.strategy_pool, s.sort_order, s.is_active, s.created_at, s.updated_at,
+                        COALESCE(c.is_active, true) AS parent_category_is_active
+                    FROM template_subcategories s
+                    LEFT JOIN template_categories c
+                      ON c.bot_id = s.bot_id AND c.key = s.category_key
+                    WHERE s.bot_id = $1
+                      AND ($2::boolean = true OR (s.is_active = true AND COALESCE(c.is_active, true) = true))
+                    ORDER BY s.category_key ASC, s.sort_order ASC, s.label ASC, s.key ASC
+                    `,
+                    [botId, includeInactive]
+                );
+            } catch (error) {
+                if (error.code !== '42P01') throw error;
+                return {
+                    bot_id: botId,
+                    include_inactive: includeInactive,
+                    categories: [],
+                    subcategories: [],
+                    intents: [],
+                    grouped: [],
+                    migration_required: 'v3_template_taxonomy.sql'
+                };
+            }
+
+            const categories = categoriesResult.rows;
+            const subcategories = subcategoriesResult.rows.map((row) => ({
+                ...row,
+                effective_is_active: !!(row.is_active && row.parent_category_is_active)
+            }));
+            const grouped = categories.map((category) => ({
+                ...category,
+                subcategories: subcategories.filter((sub) => sub.category_key === category.key)
+            }));
+
+            return {
+                bot_id: botId,
+                include_inactive: includeInactive,
+                categories,
+                subcategories,
+                intents: subcategories.map((sub) => ({
+                    key: sub.key,
+                    category_key: sub.category_key,
+                    label: sub.label,
+                    description: sub.description,
+                    reply_mode: sub.reply_mode,
+                    greeting_policy: sub.greeting_policy,
+                    default_template_count: sub.default_template_count,
+                    strategy_pool: sub.strategy_pool,
+                    is_active: sub.effective_is_active
+                })),
+                grouped
+            };
+        },
+        INTERNAL_TEMPLATE_TAXONOMY_CACHE_TTL
+    );
+
+    res.json(payload);
+}));
+
+// ============================================
 // GET /v1/internal/bot-templates/:botId
 // n8n fetches templates for a bot
 // Optional: ?sub_category=evaluation.objection_price
@@ -843,17 +933,48 @@ router.get('/bot-templates/:botId', asyncHandler(async (req, res) => {
     const templatesPayload = await getOrSet(
         `internal:bot-templates:${botId}:sub:${sub_category || ''}:cat:${category || ''}`,
         async () => {
-            const result = await query(
-                `SELECT id, name, content, category, sub_category, shortcut
-                 FROM templates
-                 WHERE bot_id = $1
-                   AND is_active = true
-                   AND ($2::text IS NULL OR sub_category = $2)
-                   AND ($3::text IS NULL OR category = $3)
-                 ORDER BY use_count DESC
-                 LIMIT 3`,
-                [botId, sub_category || null, category || null]
-            );
+            let result;
+            try {
+                result = await query(
+                    `SELECT t.id, t.name, t.content, t.category, t.sub_category, t.shortcut
+                     FROM templates t
+                     LEFT JOIN template_subcategories ts
+                       ON ts.bot_id = t.bot_id AND ts.key = t.sub_category
+                     LEFT JOIN template_categories tsc
+                       ON tsc.bot_id = ts.bot_id AND tsc.key = ts.category_key
+                     LEFT JOIN template_categories tc
+                       ON tc.bot_id = t.bot_id AND tc.key = t.category
+                     WHERE t.bot_id = $1
+                       AND t.is_active = true
+                       AND ($2::text IS NULL OR t.sub_category = $2)
+                       AND ($3::text IS NULL OR t.category = $3)
+                       AND (
+                         t.sub_category IS NULL
+                         OR ts.id IS NULL
+                         OR (ts.is_active = true AND COALESCE(tsc.is_active, true) = true)
+                       )
+                       AND (
+                         tc.id IS NULL
+                         OR tc.is_active = true
+                       )
+                     ORDER BY t.use_count DESC
+                     LIMIT 3`,
+                    [botId, sub_category || null, category || null]
+                );
+            } catch (error) {
+                if (error.code !== '42P01') throw error;
+                result = await query(
+                    `SELECT id, name, content, category, sub_category, shortcut
+                     FROM templates
+                     WHERE bot_id = $1
+                       AND is_active = true
+                       AND ($2::text IS NULL OR sub_category = $2)
+                       AND ($3::text IS NULL OR category = $3)
+                     ORDER BY use_count DESC
+                     LIMIT 3`,
+                    [botId, sub_category || null, category || null]
+                );
+            }
 
             return { templates: result.rows, intent: sub_category || category || 'all' };
         },
@@ -903,8 +1024,9 @@ router.post('/templates/bulk', asyncHandler(async (req, res) => {
         }
     }
 
-    // Invalidate n8n responder template cache (best effort)
+    // Invalidate n8n responder template/taxonomy cache (best effort)
     await delByPattern(`internal:bot-templates:${bot_id}:*`);
+    await delByPattern(`internal:template-taxonomy:${bot_id}:*`);
 
     res.json({ created, total: templates.length, errors });
 }));

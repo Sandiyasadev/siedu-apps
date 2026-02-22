@@ -5,6 +5,16 @@ const { delByPattern } = require('../utils/cache');
 const asyncHandler = require('../middleware/asyncHandler');
 const { requireRole } = require('../middleware/auth');
 
+const parseBool = (value) => {
+    if (value === undefined) return undefined;
+    if (typeof value === 'boolean') return value;
+    if (typeof value !== 'string') return undefined;
+    const normalized = value.trim().toLowerCase();
+    if (['1', 'true', 'yes', 'on'].includes(normalized)) return true;
+    if (['0', 'false', 'no', 'off'].includes(normalized)) return false;
+    return undefined;
+};
+
 const normalizeOptionalSubCategory = (value) => {
     if (value === undefined) return undefined;
     if (value === null) return null;
@@ -13,21 +23,36 @@ const normalizeOptionalSubCategory = (value) => {
     return trimmed === '' ? null : trimmed;
 };
 
+const invalidateTemplateCaches = async (botId) => {
+    await delByPattern(`internal:bot-templates:${botId}:*`);
+    await delByPattern(`internal:template-taxonomy:${botId}:*`);
+};
+
 // ============================================
 // GET /v1/templates - List templates for a bot
 // ============================================
 router.get('/', asyncHandler(async (req, res) => {
     const { bot_id, category } = req.query;
     const sub_category = normalizeOptionalSubCategory(req.query.sub_category);
+    const includeInactive = parseBool(req.query.include_inactive) === true;
+    const activeFilter = parseBool(req.query.is_active);
 
     let sql = `
         SELECT t.*, b.name as bot_name
         FROM templates t
         JOIN bots b ON b.id = t.bot_id
-        WHERE b.workspace_id = $1 AND t.is_active = true
+        WHERE b.workspace_id = $1
     `;
     const params = [req.user.workspace_id];
     let paramIndex = 2;
+
+    if (!includeInactive) {
+        sql += ` AND t.is_active = true`;
+    } else if (activeFilter !== undefined) {
+        sql += ` AND t.is_active = $${paramIndex}`;
+        params.push(activeFilter);
+        paramIndex++;
+    }
 
     if (bot_id) {
         sql += ` AND t.bot_id = $${paramIndex}`;
@@ -102,7 +127,7 @@ router.post('/', requireRole('admin'), asyncHandler(async (req, res) => {
         RETURNING *
     `, [bot_id, name, content, category || 'general', sub_category ?? null, shortcut]);
 
-    await delByPattern(`internal:bot-templates:${bot_id}:*`);
+    await invalidateTemplateCaches(bot_id);
 
     res.status(201).json({ template: result.rows[0] });
 }));
@@ -173,7 +198,7 @@ router.patch('/:id', requireRole('admin'), asyncHandler(async (req, res) => {
         RETURNING *
     `, params);
 
-    await delByPattern(`internal:bot-templates:${result.rows[0].bot_id}:*`);
+    await invalidateTemplateCaches(result.rows[0].bot_id);
 
     res.json({ template: result.rows[0] });
 }));
@@ -194,7 +219,7 @@ router.delete('/:id', requireRole('admin'), asyncHandler(async (req, res) => {
     }
 
     await query('DELETE FROM templates WHERE id = $1', [req.params.id]);
-    await delByPattern(`internal:bot-templates:${check.rows[0].bot_id}:*`);
+    await invalidateTemplateCaches(check.rows[0].bot_id);
     res.json({ success: true });
 }));
 
