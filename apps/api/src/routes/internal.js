@@ -700,4 +700,108 @@ router.post('/templates/bulk', asyncHandler(async (req, res) => {
     res.json({ created, total: templates.length, errors });
 }));
 
+// ============================================
+// GET /v1/internal/chat-history/:conversationId
+// n8n fetches chat history with timestamps & contact status
+// Replaces n8n Load Memory + Format History + Check Contact Status
+// ============================================
+router.get('/chat-history/:conversationId', asyncHandler(async (req, res) => {
+    const { conversationId } = req.params;
+    const limit = Math.min(parseInt(req.query.limit) || 10, 20);
+
+    const result = await query(
+        `SELECT role, content, created_at
+         FROM messages
+         WHERE conversation_id = $1
+         ORDER BY created_at DESC
+         LIMIT $2`,
+        [conversationId, limit]
+    );
+
+    const messages = result.rows.reverse(); // chronological
+    const count = messages.length;
+    const now = new Date();
+
+    // ── Time formatting helper (WIB = UTC+7) ──
+    const toWIB = (d) => new Date(new Date(d).getTime() + 7 * 3600000);
+    const fmtTime = (d) => {
+        const w = toWIB(d);
+        return w.toISOString().slice(11, 16).replace(':', '.'); // "14.30"
+    };
+    const fmtDate = (d) => {
+        const w = toWIB(d);
+        const days = ['Minggu', 'Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu'];
+        const months = ['Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni',
+            'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'];
+        return `${days[w.getUTCDay()]}, ${w.getUTCDate()} ${months[w.getUTCMonth()]} ${w.getUTCFullYear()}`;
+    };
+
+    // ── Contact Status Calculation ──
+    const isNew = count === 0;
+    let lastMessageAt = null;
+    let gapHours = 9999;
+    let isSameDay = false;
+
+    if (count > 0) {
+        lastMessageAt = new Date(messages[count - 1].created_at);
+        gapHours = Math.round((now - lastMessageAt) / 3600000);
+
+        const todayWIB = toWIB(now).toISOString().slice(0, 10);
+        const lastWIB = toWIB(lastMessageAt).toISOString().slice(0, 10);
+        isSameDay = todayWIB === lastWIB;
+    }
+
+    const isReturning = !isNew && gapHours > 24;
+
+    // ── Forced Intent ──
+    let forcedIntent = null;
+    if (isNew) forcedIntent = 'engagement.greeting_new';
+    if (isReturning) forcedIntent = 'engagement.greeting_return';
+
+    // ── Time Context String (for LLM prompt injection) ──
+    const nowWIB = toWIB(now);
+    const hourWIB = nowWIB.getUTCHours();
+    let greeting = 'Selamat pagi';
+    if (hourWIB >= 11 && hourWIB < 15) greeting = 'Selamat siang';
+    if (hourWIB >= 15 && hourWIB < 18) greeting = 'Selamat sore';
+    if (hourWIB >= 18 || hourWIB < 4) greeting = 'Selamat malam';
+
+    const timeContext = `${fmtDate(now)} pukul ${fmtTime(now)} WIB`;
+
+    // ── Prompt Instruction (pre-computed for LLM) ──
+    let promptInstruction = '';
+    if (isNew) {
+        promptInstruction = `Ini adalah KONTAK BARU. Belum pernah chat sebelumnya. Gunakan sapaan: "${greeting}! 👋"`;
+    } else if (isReturning) {
+        promptInstruction = `Kontak KEMBALI setelah ${gapHours} jam tidak aktif. Gunakan sapaan hangat: "${greeting}! Senang bisa chat lagi 😊"`;
+    } else if (isSameDay) {
+        promptInstruction = `Kontak MASIH CHAT hari ini (jarak ${gapHours} jam dari pesan terakhir). Lanjutkan percakapan secara natural tanpa sapaan ulang.`;
+    } else {
+        promptInstruction = `Kontak terakhir chat ${gapHours} jam lalu. ${greeting}, lanjutkan percakapan.`;
+    }
+
+    // ── Format History Lines with Timestamps ──
+    const historyLines = messages.map(m => {
+        const role = m.role === 'user' ? 'User' : 'Assistant';
+        return `[${fmtTime(m.created_at)} WIB] ${role}: ${m.content}`;
+    });
+
+    res.json({
+        messages,
+        history_text: historyLines.join('\n'),
+        time_context: timeContext,
+        greeting_word: greeting,
+        contact_status: {
+            isNew,
+            isReturning,
+            isSameDay,
+            gapHours,
+            lastMessageAt,
+            forcedIntent,
+            messageCount: count,
+            promptInstruction
+        }
+    });
+}));
+
 module.exports = router;
