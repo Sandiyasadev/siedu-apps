@@ -1,14 +1,24 @@
 const express = require('express');
 const router = express.Router();
 const { query } = require('../utils/db');
+const { delByPattern } = require('../utils/cache');
 const asyncHandler = require('../middleware/asyncHandler');
 const { requireRole } = require('../middleware/auth');
+
+const normalizeOptionalSubCategory = (value) => {
+    if (value === undefined) return undefined;
+    if (value === null) return null;
+    if (typeof value !== 'string') return value;
+    const trimmed = value.trim();
+    return trimmed === '' ? null : trimmed;
+};
 
 // ============================================
 // GET /v1/templates - List templates for a bot
 // ============================================
 router.get('/', asyncHandler(async (req, res) => {
     const { bot_id, category } = req.query;
+    const sub_category = normalizeOptionalSubCategory(req.query.sub_category);
 
     let sql = `
         SELECT t.*, b.name as bot_name
@@ -29,6 +39,17 @@ router.get('/', asyncHandler(async (req, res) => {
         sql += ` AND t.category = $${paramIndex}`;
         params.push(category);
         paramIndex++;
+    }
+
+    // `sub_category=` (empty string) explicitly filters templates without intent mapping.
+    if (req.query.sub_category !== undefined) {
+        if (sub_category === null) {
+            sql += ` AND t.sub_category IS NULL`;
+        } else if (sub_category !== undefined) {
+            sql += ` AND t.sub_category = $${paramIndex}`;
+            params.push(sub_category);
+            paramIndex++;
+        }
     }
 
     sql += ' ORDER BY t.category, t.use_count DESC';
@@ -60,6 +81,7 @@ router.get('/:id', asyncHandler(async (req, res) => {
 // ============================================
 router.post('/', requireRole('admin'), asyncHandler(async (req, res) => {
     const { bot_id, name, content, category, shortcut } = req.body;
+    const sub_category = normalizeOptionalSubCategory(req.body.sub_category);
 
     if (!bot_id || !name || !content) {
         return res.status(400).json({ error: 'bot_id, name, and content are required' });
@@ -75,10 +97,12 @@ router.post('/', requireRole('admin'), asyncHandler(async (req, res) => {
     }
 
     const result = await query(`
-        INSERT INTO templates (bot_id, name, content, category, shortcut)
-        VALUES ($1, $2, $3, $4, $5)
+        INSERT INTO templates (bot_id, name, content, category, sub_category, shortcut)
+        VALUES ($1, $2, $3, $4, $5, $6)
         RETURNING *
-    `, [bot_id, name, content, category || 'general', shortcut]);
+    `, [bot_id, name, content, category || 'general', sub_category ?? null, shortcut]);
+
+    await delByPattern(`internal:bot-templates:${bot_id}:*`);
 
     res.status(201).json({ template: result.rows[0] });
 }));
@@ -88,10 +112,11 @@ router.post('/', requireRole('admin'), asyncHandler(async (req, res) => {
 // ============================================
 router.patch('/:id', requireRole('admin'), asyncHandler(async (req, res) => {
     const { name, content, category, shortcut, is_active } = req.body;
+    const sub_category = normalizeOptionalSubCategory(req.body.sub_category);
 
     // Verify template belongs to workspace
     const check = await query(`
-        SELECT t.id FROM templates t
+        SELECT t.id, t.bot_id FROM templates t
         JOIN bots b ON b.id = t.bot_id
         WHERE t.id = $1 AND b.workspace_id = $2
     `, [req.params.id, req.user.workspace_id]);
@@ -124,6 +149,11 @@ router.patch('/:id', requireRole('admin'), asyncHandler(async (req, res) => {
         params.push(shortcut);
         paramIndex++;
     }
+    if (sub_category !== undefined) {
+        updates.push(`sub_category = $${paramIndex}`);
+        params.push(sub_category);
+        paramIndex++;
+    }
     if (is_active !== undefined) {
         updates.push(`is_active = $${paramIndex}`);
         params.push(is_active);
@@ -143,6 +173,8 @@ router.patch('/:id', requireRole('admin'), asyncHandler(async (req, res) => {
         RETURNING *
     `, params);
 
+    await delByPattern(`internal:bot-templates:${result.rows[0].bot_id}:*`);
+
     res.json({ template: result.rows[0] });
 }));
 
@@ -152,7 +184,7 @@ router.patch('/:id', requireRole('admin'), asyncHandler(async (req, res) => {
 router.delete('/:id', requireRole('admin'), asyncHandler(async (req, res) => {
     // Verify template belongs to workspace
     const check = await query(`
-        SELECT t.id FROM templates t
+        SELECT t.id, t.bot_id FROM templates t
         JOIN bots b ON b.id = t.bot_id
         WHERE t.id = $1 AND b.workspace_id = $2
     `, [req.params.id, req.user.workspace_id]);
@@ -162,6 +194,7 @@ router.delete('/:id', requireRole('admin'), asyncHandler(async (req, res) => {
     }
 
     await query('DELETE FROM templates WHERE id = $1', [req.params.id]);
+    await delByPattern(`internal:bot-templates:${check.rows[0].bot_id}:*`);
     res.json({ success: true });
 }));
 

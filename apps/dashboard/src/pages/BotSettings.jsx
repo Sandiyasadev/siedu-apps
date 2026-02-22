@@ -31,17 +31,27 @@ function BotSettings() {
     const [templateSaving, setTemplateSaving] = useState(false)
     const [deleteTemplateId, setDeleteTemplateId] = useState(null)
     const [deletingTemplate, setDeletingTemplate] = useState(false)
+    const [templateFilter, setTemplateFilter] = useState({ category: '', sub_category: '__all__' })
 
     // Fetch templates on mount
     useEffect(() => {
         if (bot?.id) fetchTemplates()
-    }, [bot?.id])
+    }, [bot?.id, templateFilter.category, templateFilter.sub_category])
 
     const fetchTemplates = async () => {
+        if (!bot?.id) return
         setTemplatesLoading(true)
         const token = getToken()
         try {
-            const res = await fetch(`${API_BASE}/v1/templates?bot_id=${bot.id}`, {
+            const params = new URLSearchParams({ bot_id: bot.id })
+            if (templateFilter.category) params.set('category', templateFilter.category)
+            if (templateFilter.sub_category === '__null__') {
+                params.set('sub_category', '')
+            } else if (templateFilter.sub_category !== '__all__') {
+                params.set('sub_category', templateFilter.sub_category)
+            }
+
+            const res = await fetch(`${API_BASE}/v1/templates?${params.toString()}`, {
                 headers: { Authorization: `Bearer ${token}` }
             })
             const data = await res.json()
@@ -382,6 +392,59 @@ function BotSettings() {
                     }}>
                         Template aktif akan digunakan AI sebagai kerangka jawaban. AI akan mengisi detail spesifik berdasarkan knowledge base.
                     </p>
+
+                    <div style={{
+                        display: 'grid',
+                        gridTemplateColumns: '1fr 1fr auto',
+                        gap: 'var(--space-3)',
+                        alignItems: 'end',
+                        marginBottom: 'var(--space-4)'
+                    }}>
+                        <div className="form-group" style={{ margin: 0 }}>
+                            <label className="form-label">Filter Fase</label>
+                            <select
+                                className="form-input"
+                                value={templateFilter.category}
+                                onChange={e => setTemplateFilter({
+                                    category: e.target.value,
+                                    sub_category: '__all__'
+                                })}
+                            >
+                                <option value="">Semua fase</option>
+                                <option value="engagement">Engagement</option>
+                                <option value="discovery">Discovery</option>
+                                <option value="evaluation">Evaluation</option>
+                                <option value="conversion">Conversion</option>
+                                <option value="retention">Retention</option>
+                            </select>
+                        </div>
+
+                        <div className="form-group" style={{ margin: 0 }}>
+                            <label className="form-label">Filter Intent</label>
+                            <select
+                                className="form-input"
+                                value={templateFilter.sub_category}
+                                onChange={e => setTemplateFilter({ ...templateFilter, sub_category: e.target.value })}
+                            >
+                                <option value="__all__">Semua intent</option>
+                                <option value="__null__">Tanpa intent (sub_category kosong)</option>
+                                {(templateFilter.category
+                                    ? (INTENT_MAP[templateFilter.category] || [])
+                                    : Object.values(INTENT_MAP).flat()
+                                ).map(opt => (
+                                    <option key={opt.value} value={opt.value}>{opt.value}</option>
+                                ))}
+                            </select>
+                        </div>
+
+                        <button
+                            className="btn"
+                            onClick={() => setTemplateFilter({ category: '', sub_category: '__all__' })}
+                            style={{ alignSelf: 'end' }}
+                        >
+                            Reset Filter
+                        </button>
+                    </div>
 
                     {templatesLoading ? (
                         <div style={{ textAlign: 'center', padding: 'var(--space-6)', color: 'var(--gray-400)' }}>

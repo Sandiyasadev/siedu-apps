@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const { query } = require('../utils/db');
+const { getOrSet, delByPattern } = require('../utils/cache');
 const asyncHandler = require('../middleware/asyncHandler');
 const { emitNewMessage, emitStatusChange } = require('../services/socketService');
 const { sendToChannel } = require('../services/channelService');
@@ -511,14 +512,51 @@ router.get('/analytics/:botId', asyncHandler(async (req, res) => {
     });
 }));
 
-// ============================================
-// GET /v1/internal/bot-config/:botId
-// Get bot configuration for n8n workflow
-// Returns system prompt, RAG settings, LLM config
-// ============================================
-router.get('/bot-config/:botId', asyncHandler(async (req, res) => {
-    const { botId } = req.params;
+const parsePositiveInt = (value, fallback) => {
+    const parsed = parseInt(value, 10);
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+};
 
+const INTERNAL_BOT_CONFIG_CACHE_TTL = parsePositiveInt(process.env.INTERNAL_BOT_CONFIG_CACHE_TTL, 300);
+const INTERNAL_TEMPLATE_CACHE_TTL = parsePositiveInt(process.env.INTERNAL_TEMPLATE_CACHE_TTL, 60);
+const CONTACT_CONTINUATION_WINDOW_MINUTES = parsePositiveInt(process.env.CONTACT_CONTINUATION_WINDOW_MINUTES, 15);
+const CONTACT_RETURNING_THRESHOLD_MINUTES = parsePositiveInt(process.env.CONTACT_RETURNING_THRESHOLD_MINUTES, 24 * 60);
+
+const toWIB = (d) => new Date(new Date(d).getTime() + 7 * 3600000);
+
+const fmtTimeWIB = (d) => {
+    const w = toWIB(d);
+    return w.toISOString().slice(11, 16).replace(':', '.'); // "14.30"
+};
+
+const fmtDateWIB = (d) => {
+    const w = toWIB(d);
+    const days = ['Minggu', 'Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu'];
+    const months = ['Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni',
+        'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'];
+    return `${days[w.getUTCDay()]}, ${w.getUTCDate()} ${months[w.getUTCMonth()]} ${w.getUTCFullYear()}`;
+};
+
+const formatGapHuman = (minutes) => {
+    if (!Number.isFinite(minutes) || minutes < 0) return 'belum ada riwayat';
+    if (minutes < 60) return `${minutes} menit`;
+    const hours = Math.floor(minutes / 60);
+    const rem = minutes % 60;
+    if (rem === 0) return `${hours} jam`;
+    return `${hours} jam ${rem} menit`;
+};
+
+const getCurrentGreetingWord = (now = new Date()) => {
+    const nowWIB = toWIB(now);
+    const hourWIB = nowWIB.getUTCHours();
+    let greeting = 'Selamat pagi';
+    if (hourWIB >= 11 && hourWIB < 15) greeting = 'Selamat siang';
+    if (hourWIB >= 15 && hourWIB < 18) greeting = 'Selamat sore';
+    if (hourWIB >= 18 || hourWIB < 4) greeting = 'Selamat malam';
+    return greeting;
+};
+
+async function fetchBotConfigData(botId) {
     const result = await query(`
         SELECT 
             id, name, system_prompt, 
@@ -532,12 +570,13 @@ router.get('/bot-config/:botId', asyncHandler(async (req, res) => {
     `, [botId]);
 
     if (result.rows.length === 0) {
-        return res.status(404).json({ error: 'Bot not found' });
+        const err = new Error('Bot not found');
+        err.status = 404;
+        throw err;
     }
 
     const bot = result.rows[0];
-
-    res.json({
+    return {
         bot_id: bot.id,
         name: bot.name,
         system_prompt: bot.system_prompt || '',
@@ -549,7 +588,163 @@ router.get('/bot-config/:botId', asyncHandler(async (req, res) => {
         embed_model: bot.embed_model || 'text-embedding-3-small',
         booking_link: bot.booking_link || null,
         handoff_enabled: bot.handoff_enabled
+    };
+}
+
+async function fetchBotConfigCached(botId) {
+    return getOrSet(
+        `internal:bot-config:${botId}`,
+        () => fetchBotConfigData(botId),
+        INTERNAL_BOT_CONFIG_CACHE_TTL
+    );
+}
+
+async function buildChatHistoryPayload(conversationId, limitInput) {
+    const limit = Math.min(parsePositiveInt(limitInput, 10), 20);
+    const now = new Date();
+
+    const [messageResult, userHistoryResult] = await Promise.all([
+        query(
+            `SELECT role, content, created_at
+             FROM messages
+             WHERE conversation_id = $1
+             ORDER BY created_at DESC
+             LIMIT $2`,
+            [conversationId, limit]
+        ),
+        query(
+            `SELECT created_at
+             FROM messages
+             WHERE conversation_id = $1 AND role = 'user'
+             ORDER BY created_at DESC
+             LIMIT 2`,
+            [conversationId]
+        )
+    ]);
+
+    const messages = messageResult.rows.reverse(); // chronological
+    const count = messages.length;
+
+    // userHistoryResult is DESC order: [current_user_msg, previous_user_msg]
+    const currentUserMessageAt = userHistoryResult.rows[0]?.created_at
+        ? new Date(userHistoryResult.rows[0].created_at)
+        : null;
+    const previousUserMessageAt = userHistoryResult.rows[1]?.created_at
+        ? new Date(userHistoryResult.rows[1].created_at)
+        : null;
+
+    // "new" means this is the first user message in the conversation.
+    const isNew = userHistoryResult.rows.length <= 1;
+
+    let gapMinutes = null;
+    let gapHours = null;
+    let isSameDay = false;
+
+    if (currentUserMessageAt && previousUserMessageAt) {
+        gapMinutes = Math.max(0, Math.round((currentUserMessageAt - previousUserMessageAt) / 60000));
+        gapHours = Math.round(gapMinutes / 60);
+
+        const currentWIB = toWIB(currentUserMessageAt).toISOString().slice(0, 10);
+        const previousWIB = toWIB(previousUserMessageAt).toISOString().slice(0, 10);
+        isSameDay = currentWIB === previousWIB;
+    }
+
+    const isContinuation = !isNew && gapMinutes !== null && gapMinutes <= CONTACT_CONTINUATION_WINDOW_MINUTES;
+    const isReturning = !isNew && gapMinutes !== null && gapMinutes >= CONTACT_RETURNING_THRESHOLD_MINUTES;
+
+    let conversationMode = 'resume';
+    if (isNew) conversationMode = 'new';
+    else if (isContinuation) conversationMode = 'continuation';
+    else if (isReturning) conversationMode = 'returning';
+
+    let forcedIntent = null;
+    let forcedIntentReason = null;
+    if (conversationMode === 'new') {
+        forcedIntent = 'engagement.greeting_new';
+        forcedIntentReason = 'new_contact';
+    } else if (conversationMode === 'returning') {
+        forcedIntent = 'engagement.greeting_return';
+        forcedIntentReason = 'inactive_threshold_reached';
+    }
+
+    const greeting = getCurrentGreetingWord(now);
+    const timeContext = `${fmtDateWIB(now)} pukul ${fmtTimeWIB(now)} WIB`;
+
+    let promptInstruction = '';
+    if (conversationMode === 'new') {
+        promptInstruction = `Ini adalah KONTAK BARU (pesan user pertama). Gunakan sapaan: "${greeting}! 👋"`;
+    } else if (conversationMode === 'returning') {
+        promptInstruction = `Kontak KEMBALI setelah ${formatGapHuman(gapMinutes)} tidak aktif. Gunakan sapaan hangat: "${greeting}! Senang bisa chat lagi 😊"`;
+    } else if (conversationMode === 'continuation') {
+        promptInstruction = `Kontak masih lanjut percakapan (jarak antar pesan user ${formatGapHuman(gapMinutes)}). Lanjutkan secara natural TANPA sapaan ulang.`;
+    } else if (isSameDay) {
+        promptInstruction = `Kontak masih chat di hari yang sama (jarak antar pesan user ${formatGapHuman(gapMinutes)}). Lanjutkan percakapan secara natural tanpa sapaan ulang.`;
+    } else {
+        promptInstruction = `Kontak terakhir chat ${formatGapHuman(gapMinutes)} lalu. Lanjutkan percakapan secara natural (sapaan ulang opsional sesuai konteks).`;
+    }
+
+    const historyLines = messages.map(m => {
+        const role = m.role === 'user' ? 'User' : 'Assistant';
+        return `[${fmtTimeWIB(m.created_at)} WIB] ${role}: ${m.content}`;
     });
+
+    return {
+        messages,
+        history_text: historyLines.join('\n'),
+        time_context: timeContext,
+        greeting_word: greeting,
+        contact_status: {
+            isNew,
+            isContinuation,
+            isReturning,
+            isSameDay,
+            conversationMode,
+            gapMinutes,
+            gapHours,
+            lastMessageAt: previousUserMessageAt, // previous user message, basis mode detection
+            currentUserMessageAt,
+            previousUserMessageAt,
+            forcedIntent,
+            forcedIntentReason,
+            messageCount: count,
+            continuationWindowMinutes: CONTACT_CONTINUATION_WINDOW_MINUTES,
+            returningThresholdMinutes: CONTACT_RETURNING_THRESHOLD_MINUTES,
+            promptInstruction
+        }
+    };
+}
+
+// ============================================
+// GET /v1/internal/bot-config/:botId
+// Get bot configuration for n8n workflow
+// Returns system prompt, RAG settings, LLM config
+// ============================================
+router.get('/bot-config/:botId', asyncHandler(async (req, res) => {
+    const { botId } = req.params;
+    const botConfig = await fetchBotConfigCached(botId);
+    res.json(botConfig);
+}));
+
+// ============================================
+// GET /v1/internal/responder-context/:conversationId
+// Optimized context endpoint for responder workflow (parallel backend fetch)
+// Combines bot-config + chat-history in one request to reduce n8n latency
+// ============================================
+router.get('/responder-context/:conversationId', asyncHandler(async (req, res) => {
+    const { conversationId } = req.params;
+    const { bot_id } = req.query;
+    const limit = req.query.limit;
+
+    if (!bot_id) {
+        return res.status(400).json({ error: 'bot_id query parameter is required' });
+    }
+
+    const [config, history] = await Promise.all([
+        fetchBotConfigCached(bot_id),
+        buildChatHistoryPayload(conversationId, limit)
+    ]);
+
+    res.json({ config, history });
 }));
 
 // ============================================
@@ -645,19 +840,27 @@ router.get('/bot-templates/:botId', asyncHandler(async (req, res) => {
     const { botId } = req.params;
     const { sub_category, category } = req.query;
 
-    const result = await query(
-        `SELECT id, name, content, category, sub_category, shortcut
-         FROM templates
-         WHERE bot_id = $1
-           AND is_active = true
-           AND ($2::text IS NULL OR sub_category = $2)
-           AND ($3::text IS NULL OR category = $3)
-         ORDER BY use_count DESC
-         LIMIT 3`,
-        [botId, sub_category || null, category || null]
+    const templatesPayload = await getOrSet(
+        `internal:bot-templates:${botId}:sub:${sub_category || ''}:cat:${category || ''}`,
+        async () => {
+            const result = await query(
+                `SELECT id, name, content, category, sub_category, shortcut
+                 FROM templates
+                 WHERE bot_id = $1
+                   AND is_active = true
+                   AND ($2::text IS NULL OR sub_category = $2)
+                   AND ($3::text IS NULL OR category = $3)
+                 ORDER BY use_count DESC
+                 LIMIT 3`,
+                [botId, sub_category || null, category || null]
+            );
+
+            return { templates: result.rows, intent: sub_category || category || 'all' };
+        },
+        INTERNAL_TEMPLATE_CACHE_TTL
     );
 
-    res.json({ templates: result.rows, intent: sub_category || category || 'all' });
+    res.json(templatesPayload);
 }));
 
 // ============================================
@@ -686,16 +889,22 @@ router.post('/templates/bulk', asyncHandler(async (req, res) => {
             continue;
         }
         try {
+            const subCategory = typeof t.sub_category === 'string'
+                ? (t.sub_category.trim() || null)
+                : (t.sub_category ?? null);
             await query(
-                `INSERT INTO templates (bot_id, name, content, category, shortcut)
-                 VALUES ($1, $2, $3, $4, $5)`,
-                [bot_id, t.name, t.content, t.category || 'general', t.shortcut || null]
+                `INSERT INTO templates (bot_id, name, content, category, sub_category, shortcut)
+                 VALUES ($1, $2, $3, $4, $5, $6)`,
+                [bot_id, t.name, t.content, t.category || 'general', subCategory, t.shortcut || null]
             );
             created++;
         } catch (err) {
             errors.push(`Failed "${t.name}": ${err.message}`);
         }
     }
+
+    // Invalidate n8n responder template cache (best effort)
+    await delByPattern(`internal:bot-templates:${bot_id}:*`);
 
     res.json({ created, total: templates.length, errors });
 }));
@@ -707,101 +916,8 @@ router.post('/templates/bulk', asyncHandler(async (req, res) => {
 // ============================================
 router.get('/chat-history/:conversationId', asyncHandler(async (req, res) => {
     const { conversationId } = req.params;
-    const limit = Math.min(parseInt(req.query.limit) || 10, 20);
-
-    const result = await query(
-        `SELECT role, content, created_at
-         FROM messages
-         WHERE conversation_id = $1
-         ORDER BY created_at DESC
-         LIMIT $2`,
-        [conversationId, limit]
-    );
-
-    const messages = result.rows.reverse(); // chronological
-    const count = messages.length;
-    const now = new Date();
-
-    // ── Time formatting helper (WIB = UTC+7) ──
-    const toWIB = (d) => new Date(new Date(d).getTime() + 7 * 3600000);
-    const fmtTime = (d) => {
-        const w = toWIB(d);
-        return w.toISOString().slice(11, 16).replace(':', '.'); // "14.30"
-    };
-    const fmtDate = (d) => {
-        const w = toWIB(d);
-        const days = ['Minggu', 'Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu'];
-        const months = ['Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni',
-            'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'];
-        return `${days[w.getUTCDay()]}, ${w.getUTCDate()} ${months[w.getUTCMonth()]} ${w.getUTCFullYear()}`;
-    };
-
-    // ── Contact Status Calculation ──
-    const isNew = count === 0;
-    let lastMessageAt = null;
-    let gapHours = 9999;
-    let isSameDay = false;
-
-    if (count > 0) {
-        lastMessageAt = new Date(messages[count - 1].created_at);
-        gapHours = Math.round((now - lastMessageAt) / 3600000);
-
-        const todayWIB = toWIB(now).toISOString().slice(0, 10);
-        const lastWIB = toWIB(lastMessageAt).toISOString().slice(0, 10);
-        isSameDay = todayWIB === lastWIB;
-    }
-
-    const isReturning = !isNew && gapHours > 24;
-
-    // ── Forced Intent ──
-    let forcedIntent = null;
-    if (isNew) forcedIntent = 'engagement.greeting_new';
-    if (isReturning) forcedIntent = 'engagement.greeting_return';
-
-    // ── Time Context String (for LLM prompt injection) ──
-    const nowWIB = toWIB(now);
-    const hourWIB = nowWIB.getUTCHours();
-    let greeting = 'Selamat pagi';
-    if (hourWIB >= 11 && hourWIB < 15) greeting = 'Selamat siang';
-    if (hourWIB >= 15 && hourWIB < 18) greeting = 'Selamat sore';
-    if (hourWIB >= 18 || hourWIB < 4) greeting = 'Selamat malam';
-
-    const timeContext = `${fmtDate(now)} pukul ${fmtTime(now)} WIB`;
-
-    // ── Prompt Instruction (pre-computed for LLM) ──
-    let promptInstruction = '';
-    if (isNew) {
-        promptInstruction = `Ini adalah KONTAK BARU. Belum pernah chat sebelumnya. Gunakan sapaan: "${greeting}! 👋"`;
-    } else if (isReturning) {
-        promptInstruction = `Kontak KEMBALI setelah ${gapHours} jam tidak aktif. Gunakan sapaan hangat: "${greeting}! Senang bisa chat lagi 😊"`;
-    } else if (isSameDay) {
-        promptInstruction = `Kontak MASIH CHAT hari ini (jarak ${gapHours} jam dari pesan terakhir). Lanjutkan percakapan secara natural tanpa sapaan ulang.`;
-    } else {
-        promptInstruction = `Kontak terakhir chat ${gapHours} jam lalu. ${greeting}, lanjutkan percakapan.`;
-    }
-
-    // ── Format History Lines with Timestamps ──
-    const historyLines = messages.map(m => {
-        const role = m.role === 'user' ? 'User' : 'Assistant';
-        return `[${fmtTime(m.created_at)} WIB] ${role}: ${m.content}`;
-    });
-
-    res.json({
-        messages,
-        history_text: historyLines.join('\n'),
-        time_context: timeContext,
-        greeting_word: greeting,
-        contact_status: {
-            isNew,
-            isReturning,
-            isSameDay,
-            gapHours,
-            lastMessageAt,
-            forcedIntent,
-            messageCount: count,
-            promptInstruction
-        }
-    });
+    const payload = await buildChatHistoryPayload(conversationId, req.query.limit);
+    res.json(payload);
 }));
 
 module.exports = router;
