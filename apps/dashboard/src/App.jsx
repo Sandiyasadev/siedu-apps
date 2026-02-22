@@ -10,6 +10,7 @@ import ChannelList from './pages/ChannelList'
 import ChannelCreate from './pages/ChannelCreate'
 import ChannelDetail from './pages/ChannelDetail'
 import BotSettings from './pages/BotSettings'
+import BotTemplates from './pages/BotTemplates'
 import BotKnowledge from './pages/BotKnowledge'
 import KnowledgeBase from './pages/KnowledgeBase'
 import Inbox from './pages/Inbox'
@@ -103,6 +104,7 @@ function App() {
                             <Route path="channels/new" element={<ChannelCreate />} />
                             <Route path="channels/:channelId" element={<ChannelDetail />} />
                             <Route path="knowledge" element={<BotKnowledge />} />
+                            <Route path="templates" element={<BotTemplates />} />
                             <Route path="settings" element={<BotSettings />} />
                         </Route>
                         <Route path="knowledge-base" element={<KnowledgeBase />} />

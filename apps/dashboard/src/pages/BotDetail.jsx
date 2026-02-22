@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react'
 import { useParams, NavLink, Outlet, useNavigate } from 'react-router-dom'
 import { useAuth } from '../App'
 import { API_BASE } from '../config/api'
-import { Bot, Radio, Database, Settings, ArrowLeft, Loader2 } from 'lucide-react'
+import { Bot, Radio, Database, Settings, ArrowLeft, Loader2, FileText } from 'lucide-react'
 
 function BotDetail() {
     const { botId } = useParams()
@@ -125,6 +125,25 @@ function BotDetail() {
                 >
                     <Database size={18} />
                     Knowledge Base
+                </NavLink>
+                <NavLink 
+                    to={`/bots/${botId}/templates`}
+                    className={({ isActive }) => `bot-tab ${isActive ? 'active' : ''}`}
+                    style={({ isActive }) => ({
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 'var(--space-2)',
+                        padding: 'var(--space-3) var(--space-4)',
+                        color: isActive ? 'var(--primary-600)' : 'var(--gray-600)',
+                        borderBottom: isActive ? '2px solid var(--primary-600)' : '2px solid transparent',
+                        fontWeight: isActive ? 600 : 400,
+                        marginBottom: '-1px',
+                        textDecoration: 'none',
+                        transition: 'all 0.15s ease'
+                    })}
+                >
+                    <FileText size={18} />
+                    Templates
                 </NavLink>
                 <NavLink 
                     to={`/bots/${botId}/settings`}
