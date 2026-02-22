@@ -260,15 +260,15 @@ function BotTemplates() {
         }
     }
 
-    const toggleTemplate = async (template) => {
+    const runTemplateToggle = async (template, nextActive) => {
         setActionLoading(`template:${template.id}`)
         setError('')
         try {
             await apiRequest(`/v1/templates/${template.id}`, {
                 method: 'PATCH',
-                body: JSON.stringify({ is_active: !template.is_active })
+                body: JSON.stringify({ is_active: nextActive })
             })
-            flashNotice(template.is_active ? 'Template dinonaktifkan' : 'Template diaktifkan')
+            flashNotice(nextActive ? 'Template diaktifkan' : 'Template dinonaktifkan')
             await Promise.all([fetchTemplates(), fetchTaxonomy()])
         } catch (err) {
             console.error('Failed to toggle template:', err)
@@ -276,6 +276,24 @@ function BotTemplates() {
         } finally {
             setActionLoading('')
         }
+    }
+
+    const toggleTemplate = async (template) => {
+        if (template.is_active) {
+            openDeleteConfirm({
+                type: 'template-deactivate',
+                entity: template,
+                title: 'Nonaktifkan template?',
+                description: `Template "${template.name}" tidak akan dipakai responder sampai diaktifkan kembali.`,
+                confirmLabel: 'Nonaktifkan',
+                danger: false,
+                verificationText: 'NONAKTIFKAN',
+                verificationLabel: 'Verifikasi nonaktifkan'
+            })
+            return
+        }
+
+        await runTemplateToggle(template, true)
     }
 
     const createCategory = async (e) => {
@@ -337,15 +355,15 @@ function BotTemplates() {
         }
     }
 
-    const toggleCategory = async (category) => {
+    const runCategoryToggle = async (category, nextActive) => {
         setActionLoading(`category:${category.id}`)
         setError('')
         try {
             await apiRequest(`/v1/template-taxonomy/categories/${category.id}`, {
                 method: 'PATCH',
-                body: JSON.stringify({ is_active: !category.is_active })
+                body: JSON.stringify({ is_active: nextActive })
             })
-            flashNotice(category.is_active ? 'Kategori dinonaktifkan' : 'Kategori diaktifkan')
+            flashNotice(nextActive ? 'Kategori diaktifkan' : 'Kategori dinonaktifkan')
             await Promise.all([fetchTaxonomy(), fetchTemplates()])
         } catch (err) {
             console.error('Failed to toggle category:', err)
@@ -355,15 +373,33 @@ function BotTemplates() {
         }
     }
 
-    const toggleSubcategory = async (subcategory) => {
+    const toggleCategory = async (category) => {
+        if (category.is_active) {
+            openDeleteConfirm({
+                type: 'category-deactivate',
+                entity: category,
+                title: 'Nonaktifkan kategori?',
+                description: `Kategori "${category.label}" akan dinonaktifkan. Dampak: ${category.subcategory_count ?? 0} sub-kategori dan ${category.template_count ?? 0} template pada kategori ini akan diabaikan responder.`,
+                confirmLabel: 'Nonaktifkan',
+                danger: false,
+                verificationText: 'NONAKTIFKAN',
+                verificationLabel: 'Verifikasi nonaktifkan'
+            })
+            return
+        }
+
+        await runCategoryToggle(category, true)
+    }
+
+    const runSubcategoryToggle = async (subcategory, nextActive) => {
         setActionLoading(`subcategory:${subcategory.id}`)
         setError('')
         try {
             await apiRequest(`/v1/template-taxonomy/subcategories/${subcategory.id}`, {
                 method: 'PATCH',
-                body: JSON.stringify({ is_active: !subcategory.is_active })
+                body: JSON.stringify({ is_active: nextActive })
             })
-            flashNotice(subcategory.is_active ? 'Sub-kategori dinonaktifkan' : 'Sub-kategori diaktifkan')
+            flashNotice(nextActive ? 'Sub-kategori diaktifkan' : 'Sub-kategori dinonaktifkan')
             await Promise.all([fetchTaxonomy(), fetchTemplates()])
         } catch (err) {
             console.error('Failed to toggle subcategory:', err)
@@ -371,6 +407,24 @@ function BotTemplates() {
         } finally {
             setActionLoading('')
         }
+    }
+
+    const toggleSubcategory = async (subcategory) => {
+        if (subcategory.is_active) {
+            openDeleteConfirm({
+                type: 'subcategory-deactivate',
+                entity: subcategory,
+                title: 'Nonaktifkan sub-kategori?',
+                description: `Sub-kategori "${subcategory.label}" (${subcategory.key}) akan dinonaktifkan. Dampak: ${subcategory.template_count ?? 0} template pada intent ini tidak akan dipakai responder.`,
+                confirmLabel: 'Nonaktifkan',
+                danger: false,
+                verificationText: 'NONAKTIFKAN',
+                verificationLabel: 'Verifikasi nonaktifkan'
+            })
+            return
+        }
+
+        await runSubcategoryToggle(subcategory, true)
     }
 
     const openDeleteConfirm = (payload) => setConfirmDelete(payload)
@@ -389,15 +443,23 @@ function BotTemplates() {
             } else if (confirmDelete.type === 'subcategory') {
                 await apiRequest(`/v1/template-taxonomy/subcategories/${confirmDelete.id}`, { method: 'DELETE' })
                 flashNotice('Sub-kategori dihapus')
+            } else if (confirmDelete.type === 'template-deactivate') {
+                await runTemplateToggle(confirmDelete.entity, false)
+            } else if (confirmDelete.type === 'category-deactivate') {
+                await runCategoryToggle(confirmDelete.entity, false)
+            } else if (confirmDelete.type === 'subcategory-deactivate') {
+                await runSubcategoryToggle(confirmDelete.entity, false)
             }
 
             setConfirmDelete(null)
-            await Promise.all([fetchTaxonomy(), fetchTemplates()])
+            if (!String(confirmDelete.type).includes('deactivate')) {
+                await Promise.all([fetchTaxonomy(), fetchTemplates()])
+            }
         } catch (err) {
-            console.error('Delete failed:', err)
+            console.error('Action failed:', err)
             const refs = err?.data?.references
             const refText = refs ? ` (refs: ${Object.entries(refs).map(([k, v]) => `${k}=${v}`).join(', ')})` : ''
-            setError(`${err.message || 'Delete failed'}${refText}`)
+            setError(`${err.message || 'Action failed'}${refText}`)
         } finally {
             setConfirmDeleting(false)
         }
@@ -679,13 +741,16 @@ function BotTemplates() {
                                             >
                                                 {actionLoading === `category:${category.id}` ? <Loader2 size={18} className="spinner" /> : (category.is_active ? <ToggleRight size={22} /> : <ToggleLeft size={22} />)}
                                             </button>
-                                            <button
-                                                onClick={() => openDeleteConfirm({
-                                                    type: 'category',
-                                                    id: category.id,
-                                                    title: 'Hapus kategori?',
-                                                    description: `Kategori "${category.label}" akan dihapus jika tidak memiliki sub-kategori/template terkait.`
-                                                })}
+                                                <button
+                                                    onClick={() => openDeleteConfirm({
+                                                        type: 'category',
+                                                        id: category.id,
+                                                        title: 'Hapus kategori?',
+                                                        description: `Kategori "${category.label}" akan dihapus permanen jika tidak memiliki sub-kategori/template terkait.`,
+                                                        confirmLabel: 'Hapus',
+                                                        verificationText: 'HAPUS',
+                                                        verificationLabel: 'Verifikasi hapus'
+                                                    })}
                                                 style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--error-500)', display: 'flex' }}
                                             >
                                                 <Trash2 size={15} />
@@ -750,7 +815,10 @@ function BotTemplates() {
                                                                 type: 'subcategory',
                                                                 id: sub.id,
                                                                 title: 'Hapus sub-kategori?',
-                                                                description: `Sub-kategori "${sub.label}" akan dihapus jika tidak dipakai template.`
+                                                                description: `Sub-kategori "${sub.label}" akan dihapus permanen jika tidak dipakai template.`,
+                                                                confirmLabel: 'Hapus',
+                                                                verificationText: 'HAPUS',
+                                                                verificationLabel: 'Verifikasi hapus'
                                                             })}
                                                             style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--error-500)', display: 'flex' }}
                                                         >
@@ -990,7 +1058,10 @@ function BotTemplates() {
                                                         type: 'template',
                                                         id: t.id,
                                                         title: 'Hapus template?',
-                                                        description: `Template "${t.name}" akan dihapus permanen.`
+                                                        description: `Template "${t.name}" akan dihapus permanen dan tidak bisa dikembalikan.`,
+                                                        confirmLabel: 'Hapus',
+                                                        verificationText: 'HAPUS',
+                                                        verificationLabel: 'Verifikasi hapus'
                                                     })}
                                                     style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '4px', color: 'var(--error-400)', display: 'flex' }}
                                                 >
@@ -1018,9 +1089,12 @@ function BotTemplates() {
 
             <ConfirmModal
                 open={!!confirmDelete}
-                title={confirmDelete?.title || 'Hapus?'}
+                title={confirmDelete?.title || 'Konfirmasi aksi'}
                 description={confirmDelete?.description || ''}
-                confirmLabel="Hapus"
+                confirmLabel={confirmDelete?.confirmLabel || 'Lanjutkan'}
+                danger={confirmDelete?.danger ?? true}
+                verificationText={confirmDelete?.verificationText || ''}
+                verificationLabel={confirmDelete?.verificationLabel || 'Verifikasi'}
                 loading={confirmDeleting}
                 onConfirm={handleConfirmDelete}
                 onCancel={() => setConfirmDelete(null)}

@@ -1,0 +1,868 @@
+{
+  "name": "Engine Responder V4.1 — Time-Aware + Lower Latency",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "chat-message",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "webhook",
+      "name": "Chat Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        -3000,
+        -800
+      ],
+      "webhookId": "chat-message"
+    },
+    {
+      "parameters": {
+        "jsCode": "return items.map(item => {\n  const body = item.json?.body || {};\n  const ch = body.channel_type;\n  let n = {\n    botId: body.bot_id || null, channel: ch || null,\n    conversationId: body.conversation_id || null,\n    threadId: body.external_thread_id || null,\n    user: { id: null, name: null, username: null },\n    message: { id: null, text: null, type: body.message_type || null, timestamp: null },\n    raw: body.raw || null\n  };\n  if (ch === 'telegram') {\n    n.user.id = body.user?.external_id || body.raw?.message?.from?.id || null;\n    n.user.name = body.user?.name || [body.raw?.message?.from?.first_name, body.raw?.message?.from?.last_name].filter(Boolean).join(' ') || null;\n    n.user.username = body.user?.username || body.raw?.message?.from?.username || null;\n    n.message.id = body.raw?.message?.message_id || null;\n    n.message.text = body.raw?.message?.text || body.text || null;\n    n.message.timestamp = body.raw?.message?.date || null;\n  }\n  if (ch === 'whatsapp') {\n    n.user.id = body.user?.external_id || body.user?.wa_id || body.raw?.message?.from || null;\n    n.user.name = body.user?.name || body.user?.profile?.name || body.raw?.contact?.profile?.name || null;\n    n.message.id = body.wa_message_id || body.raw?.message?.id || null;\n    n.message.text = body.raw?.message?.text?.body || body.text || null;\n    n.message.timestamp = body.raw?.message?.timestamp || null;\n  }\n  return { json: n };\n});"
+      },
+      "id": "normalize",
+      "name": "Normalize Payload",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -2800,
+        -800
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "chk-txt",
+              "leftValue": "={{ $json.message.text }}",
+              "operator": {
+                "operation": "notEmpty",
+                "type": "string"
+              },
+              "rightValue": ""
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "has-content",
+      "name": "Has Content?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        -2600,
+        -800
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={ \"success\": true, \"skipped\": true, \"reason\": \"empty_content\" }",
+        "options": {}
+      },
+      "id": "skip-empty",
+      "name": "Skip Empty",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        -2600,
+        -600
+      ]
+    },
+    {
+      "parameters": {
+        "url": "=http://host.docker.internal:8080/v1/internal/responder-context/{{ $('Normalize Payload').first().json.conversationId }}?bot_id={{ $('Normalize Payload').first().json.botId }}&limit=10",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Internal-Key",
+              "value": "=dev-internal-key"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 5000
+        }
+      },
+      "id": "fetch-responder-context",
+      "name": "Fetch Responder Context",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -2400,
+        -800
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "const payload = $('Normalize Payload').first().json;\nconst responder = $('Fetch Responder Context').first().json || {};\nconst config = responder.config || {};\nconst history = responder.history || {};\nreturn [{\n  json: {\n    conversation_id: payload.conversationId,\n    bot_id: payload.botId,\n    user_message: payload.message.text,\n    channel_type: payload.channel,\n    user_name: payload.user.name || '',\n    user_id: payload.user.id || payload.conversationId,\n    system_prompt: config.system_prompt || 'You are a helpful customer service assistant.',\n    bot_name: config.name || 'AI Assistant',\n    // Keep selected history metadata close to the main context for simpler prompts/logic\n    conversation_mode: history.contact_status?.conversationMode || 'unknown',\n    gap_minutes: history.contact_status?.gapMinutes ?? null\n  }\n}];"
+      },
+      "id": "prepare-ctx",
+      "name": "Prepare Context",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -2200,
+        -800
+      ]
+    },
+    {
+      "parameters": {
+        "inputSource": "passthrough",
+        "promptType": "define",
+        "text": "={{ $('Prepare Context').first().json.user_message }}",
+        "messages": {
+          "messageValues": [
+            {
+              "type": "system",
+              "message": "WAKTU SAAT INI: {{ $('Fetch Responder Context').first().json.history?.time_context || '' }}\nMODE PERCAKAPAN: {{ $('Fetch Responder Context').first().json.history?.contact_status?.conversationMode || $('Prepare Context').first().json.conversation_mode || 'unknown' }}\nINSTRUKSI KONTAK: {{ $('Fetch Responder Context').first().json.history?.contact_status?.promptInstruction || '' }}\n\nKamu adalah Intent Classifier untuk Customer Service. Hanya output satu string. Tanpa penjelasan, tanpa tanda baca tambahan.\n\nFORMAT: fase.intent (titik sebagai pemisah, lowercase)\n\nATURAN MODE:\n- Jika MODE PERCAKAPAN = continuation, utamakan intent dengan mode continuation/mixed.\n- Jika MODE PERCAKAPAN = continuation, JANGAN pilih intent mode opening kecuali user benar-benar sedang menyapa/membuka percakapan ulang.\n- Jika MODE PERCAKAPAN = new atau returning dan konteks mendukung, intent mode opening boleh dipilih.\n\nPILIHAN VALID (pilih SATU yang paling tepat):\n{{ $('Build Intent Registry').first().json.classifierIntentListText }}\n\nJika ragu, pilih intent yang paling aman dan paling relevan terhadap kebutuhan user (hindari intent greeting untuk percakapan lanjutan).\n\nRiwayat Chat (terakhir):\n{{ $('Fetch Responder Context').first().json.history?.history_text || '' }}\n\nPesan Terakhir:\n{{ $('Prepare Context').first().json.user_message }}"
+            }
+          ]
+        }
+      },
+      "id": "classifier",
+      "name": "Intent Classifier",
+      "type": "@n8n/n8n-nodes-langchain.chainLlm",
+      "typeVersion": 1.4,
+      "position": [
+        -1800,
+        -800
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "model": "amazon.nova-lite-v1:0",
+        "options": {
+          "temperature": 0
+        }
+      },
+      "id": "nova-lite",
+      "name": "Nova Lite (Classifier)",
+      "type": "@n8n/n8n-nodes-langchain.lmChatAwsBedrock",
+      "typeVersion": 1.1,
+      "position": [
+        -1400,
+        -640
+      ],
+      "credentials": {
+        "aws": {
+          "id": "w1WID0kdD8RQoTjj",
+          "name": "us-api"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const responder = $('Fetch Responder Context').first()?.json || {};\nconst history = responder.history || {};\nconst contactStatus = history.contact_status || {};\nconst registryPayload = $('Build Intent Registry').first()?.json || {};\nconst valid = Array.isArray(registryPayload.validIntentKeys) ? registryPayload.validIntentKeys : [];\nconst intentMap = registryPayload.intentMap || {};\nconst fallbackIntent = registryPayload.fallbackIntent || 'discovery.program_detail';\n\nconst forcedRaw = contactStatus.forcedIntent || null;\nconst forced = typeof forcedRaw === 'string' ? forcedRaw.trim().toLowerCase() : null;\nlet classified = '';\nif (!forced) {\n  try {\n    const raw = $('Intent Classifier').first()?.json?.text || '';\n    classified = String(raw).trim().toLowerCase().replace(/[\\s\"'`]+/g, '');\n  } catch (e) {\n    classified = '';\n  }\n}\n\nlet selected = null;\nlet forcedApplied = false;\nif (forced && valid.includes(forced)) {\n  selected = forced;\n  forcedApplied = true;\n} else if (classified && valid.includes(classified)) {\n  selected = classified;\n} else {\n  selected = fallbackIntent;\n}\n\nconst meta = intentMap[selected] || {};\nconst conversationMode = contactStatus.conversationMode || $('Prepare Context').first()?.json?.conversation_mode || 'unknown';\nconst intentReplyMode = ['opening','mixed','continuation'].includes(meta.reply_mode) ? meta.reply_mode : 'continuation';\nconst classifierMatched = !!classified && classified === selected;\nconst useGreetingLlm = intentReplyMode === 'opening' && (forcedApplied || conversationMode !== 'continuation');\n\nreturn [{\n  json: {\n    intent: selected,\n    wasForced: !!forced,\n    forcedApplied,\n    forcedIntentRequested: forced,\n    classifiedIntentRaw: classified || null,\n    templateSubCategory: selected,\n    useGreetingLlm,\n    intentReplyMode,\n    intentDescription: meta.description || '',\n    taxonomySource: registryPayload.source || 'unknown',\n    taxonomyRegistryCount: registryPayload.registry_count || valid.length || 0,\n    intentFallbackUsed: !(forcedApplied || classifierMatched),\n    fallbackIntentUsed: (selected === fallbackIntent) && !(forcedApplied || classifierMatched)\n  }\n}];"
+      },
+      "id": "merge-intent",
+      "name": "Merge Intent",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1400,
+        -800
+      ]
+    },
+    {
+      "parameters": {
+        "url": "=http://host.docker.internal:8080/v1/internal/bot-templates/{{ $('Prepare Context').first().json.bot_id }}?sub_category={{ $('Merge Intent').first().json.templateSubCategory || $('Merge Intent').first().json.intent || $('Build Intent Registry').first().json.fallbackIntent || 'discovery.program_detail' }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Internal-Key",
+              "value": "dev-internal-key"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 5000
+        }
+      },
+      "id": "fetch-templates-dynamic",
+      "name": "Fetch Templates (By Intent)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -1000,
+        -800
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "const ctx = $('Prepare Context').first().json;\nconst intentData = $('Merge Intent').first().json;\nconst responder = $('Fetch Responder Context').first().json || {};\nconst hist = responder.history || {};\nconst tplPayload = $input.first()?.json || {};\nlet templates = [];\nif (Array.isArray(tplPayload.templates)) templates = tplPayload.templates;\nelse if (Array.isArray(tplPayload.data?.templates)) templates = tplPayload.data.templates;\nelse if (Array.isArray(tplPayload.items)) templates = tplPayload.items;\nlet templates_xml = 'Tidak ada template khusus. Gunakan gaya bahasa natural.';\nif (templates.length > 0) {\n  templates_xml = templates.map(t =>\n    '<TEMPLATE name=\"' + (t.name||'') + '\" intent=\"' + (t.sub_category||t.category||'general') + '\">\\n' + (t.content || '') + '\\n</TEMPLATE>'\n  ).join('\\n\\n');\n}\nreturn [{\n  json: {\n    ...ctx,\n    intent: intentData.intent,\n    wasForced: intentData.wasForced,\n    forcedApplied: !!intentData.forcedApplied,\n    useGreetingLlm: !!intentData.useGreetingLlm,\n    template_sub_category: intentData.templateSubCategory || intentData.intent,\n    intent_reply_mode: intentData.intentReplyMode || 'continuation',\n    intent_description: intentData.intentDescription || '',\n    taxonomy_source: intentData.taxonomySource || 'unknown',\n    taxonomy_registry_count: intentData.taxonomyRegistryCount || null,\n    intent_fallback_used: !!intentData.intentFallbackUsed,\n    history: hist.history_text || '',\n    time_context: hist.time_context || '',\n    greeting_word: hist.greeting_word || '',\n    prompt_instruction: hist.contact_status?.promptInstruction || '',\n    conversation_mode: hist.contact_status?.conversationMode || ctx.conversation_mode || 'unknown',\n    gap_since_previous_user_minutes: hist.contact_status?.gapMinutes ?? ctx.gap_minutes ?? null,\n    templates_xml,\n    templates_count: templates.length,\n    template_fetch_error: tplPayload.error || tplPayload.message || null,\n    rag_search_query: ctx.user_message,\n    kb_type: 'faq'\n  }\n}];"
+      },
+      "id": "build-rag-ctx",
+      "name": "Build RAG Context",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        600,
+        -400
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "chk-use-greeting-llm",
+              "leftValue": "={{ $json.useGreetingLlm }}",
+              "operator": {
+                "operation": "true",
+                "type": "boolean"
+              },
+              "rightValue": ""
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "is-greeting",
+      "name": "Use Greeting LLM?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        800,
+        -400
+      ]
+    },
+    {
+      "parameters": {
+        "inputSource": "passthrough",
+        "promptType": "define",
+        "text": "={{ $json.user_message }}",
+        "messages": {
+          "messageValues": [
+            {
+              "type": "system",
+              "message": "WAKTU: {{ $json.time_context }}\nINSTRUKSI KONTAK: {{ $json.prompt_instruction }}\n\nKamu adalah Bot CS bernama {{ $json.bot_name }}.\n\nATURAN:\n1. Ganti {nama_pelanggan} dengan \"{{ $json.user_name }}\" (atau \"Kak\" jika kosong)\n2. Ganti {nama_bisnis} dengan \"{{ $json.bot_name }}\"\n3. IKUTI instruksi kontak di atas untuk sapaan yang tepat\n4. JANGAN tambahkan info yang tidak ada di template\n5. LANGSUNG tulis sapaan tanpa penjelasan.\n\nTEMPLATE PANDUAN:\n{{ $json.templates_xml }}\n\nRIWAYAT CHAT:\n{{ $json.history }}"
+            }
+          ]
+        }
+      },
+      "id": "greeting-llm",
+      "name": "Greeting LLM",
+      "type": "@n8n/n8n-nodes-langchain.chainLlm",
+      "typeVersion": 1.4,
+      "position": [
+        1000,
+        -600
+      ],
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "model": "amazon.nova-micro-v1:0",
+        "options": {
+          "temperature": 0.5
+        }
+      },
+      "id": "nova-micro-greet",
+      "name": "Nova Micro (Greeting)",
+      "type": "@n8n/n8n-nodes-langchain.lmChatAwsBedrock",
+      "typeVersion": 1.1,
+      "position": [
+        1000,
+        -760
+      ],
+      "credentials": {
+        "aws": {
+          "id": "w1WID0kdD8RQoTjj",
+          "name": "us-api"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "={{ $json.rag_search_query }}",
+        "options": {
+          "systemPromptTemplate": "WAKTU: {{ $json.time_context }}\nINSTRUKSI KONTAK: {{ $json.prompt_instruction }}\n\n[IDENTITAS & GAYA BAHASA]\nAnda adalah Customer Service WhatsApp/Telegram yang ramah, sopan, dan profesional.\n- Sapa pelanggan dengan \"Kak\"\n- Gunakan emoji secukupnya\n- Gaya bahasa: singkat, padat, natural seperti chatting WhatsApp\n\n[ATURAN MENJAWAB]\n1. GUNAKAN KONTEKS: HANYA jawab berdasarkan info di <CONTEXT>\n2. DILARANG MENGARANG: Jika info tidak ada, JANGAN mengarang\n3. JAWABAN TIDAK TAHU: \"Maaf banget Kak, untuk pertanyaan tersebut belum ada di sistem kami. Ada hal lain yang bisa dibantu? 🙏\"\n4. KONTINUITAS: Perhatikan <RIWAYAT_CHAT>\n\n[ATURAN TEMPLATE]\n1. Periksa <MASTER_TEMPLATES>. Jika ada yang cocok, gunakan strukturnya.\n2. JANGAN copy mentah. Isi detail spesifik dari <CONTEXT>.\n3. Jika tidak ada template cocok, jawab natural.\n\n<MASTER_TEMPLATES>\n{{ $json.templates_xml }}\n</MASTER_TEMPLATES>\n\n<CONTEXT>\n{context}\n</CONTEXT>\n\n<RIWAYAT_CHAT>\n{{ $json.history }}\n</RIWAYAT_CHAT>\n\n<PERTANYAAN>\n{{ $json.user_message }}\n</PERTANYAAN>"
+        }
+      },
+      "id": "rag-qa",
+      "name": "RAG QA Chain",
+      "type": "@n8n/n8n-nodes-langchain.chainRetrievalQa",
+      "typeVersion": 1.7,
+      "position": [
+        1000,
+        -200
+      ],
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "model": "amazon.nova-micro-v1:0",
+        "options": {
+          "temperature": 0.3
+        }
+      },
+      "id": "nova-micro-qa",
+      "name": "Nova Micro (QA)",
+      "type": "@n8n/n8n-nodes-langchain.lmChatAwsBedrock",
+      "typeVersion": 1.1,
+      "position": [
+        1000,
+        -360
+      ],
+      "credentials": {
+        "aws": {
+          "id": "w1WID0kdD8RQoTjj",
+          "name": "us-api"
+        }
+      }
+    },
+    {
+      "parameters": {},
+      "id": "vs-retriever",
+      "name": "Vector Store Retriever",
+      "type": "@n8n/n8n-nodes-langchain.retrieverVectorStore",
+      "typeVersion": 1,
+      "position": [
+        1000,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "options": {
+          "metadata": {
+            "metadataValues": [
+              {
+                "name": "bot_id",
+                "value": "={{ $('Build RAG Context').first().json.bot_id }}"
+              },
+              {
+                "name": "kb_type",
+                "value": "={{ $('Build RAG Context').first().json.kb_type }}"
+              }
+            ]
+          }
+        }
+      },
+      "id": "pgvector",
+      "name": "PGVector Store",
+      "type": "@n8n/n8n-nodes-langchain.vectorStorePGVector",
+      "typeVersion": 1.3,
+      "position": [
+        1000,
+        200
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "6wWjB3fPyhpR41jn",
+          "name": "siedu"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "model": "amazon.titan-embed-text-v2:0"
+      },
+      "id": "embeddings",
+      "name": "Embeddings AWS Bedrock",
+      "type": "@n8n/n8n-nodes-langchain.embeddingsAwsBedrock",
+      "typeVersion": 1,
+      "position": [
+        1200,
+        200
+      ],
+      "credentials": {
+        "aws": {
+          "id": "w1WID0kdD8RQoTjj",
+          "name": "us-api"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "return items.map(item => {\n  let content = String(item.json.output || item.json.response || item.json.text || '');\n  content = content\n    .replace(/<thinking[\\s\\S]*?<\\/thinking>/gi, '')\n    .replace(/<analysis[\\s\\S]*?<\\/analysis>/gi, '')\n    .replace(/<reasoning[\\s\\S]*?<\\/reasoning>/gi, '')\n    .replace(/<\\/?[^>]+>/g, '')\n    .replace(/\\n{3,}/g, '\\n\\n').trim();\n  if (!content) content = 'Maaf Kak, saya sedang mengalami kendala teknis. Mohon coba lagi ya 🙏';\n  item.json.content = content;\n  return item;\n});"
+      },
+      "id": "clean-output",
+      "name": "Clean Output",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1400,
+        -400
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://host.docker.internal:8080/v1/internal/ai-response",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Internal-Key",
+              "value": "=dev-internal-key"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"conversation_id\": \"{{ $('Build RAG Context').first().json.conversation_id }}\",\n  \"content\": {{ JSON.stringify($json.content || '') }},\n  \"sender_type\": \"bot\"\n}",
+        "options": {}
+      },
+      "id": "send-response",
+      "name": "Send AI Response",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1600,
+        -400
+      ],
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={ \"success\": true, \"ai_responded\": true }",
+        "options": {}
+      },
+      "id": "respond-ok",
+      "name": "Respond OK",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        1800,
+        -400
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://host.docker.internal:8080/v1/internal/ai-response",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Internal-Key",
+              "value": "=dev-internal-key"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"conversation_id\": \"{{ $('Build RAG Context').first().json.conversation_id }}\",\n  \"content\": \"Mohon maaf Kak, sistem kami sedang mengalami gangguan teknis. Silakan coba lagi dalam beberapa saat ya 🙏\",\n  \"sender_type\": \"bot\"\n}",
+        "options": {}
+      },
+      "id": "send-error",
+      "name": "Send Error Fallback",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1200,
+        0
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={ \"success\": false, \"error\": \"ai_failed\" }",
+        "options": {}
+      },
+      "id": "respond-err",
+      "name": "Respond Error",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        1400,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "url": "=http://host.docker.internal:8080/v1/internal/template-taxonomy/{{ $('Prepare Context').first().json.bot_id }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Internal-Key",
+              "value": "=dev-internal-key"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 5000
+        }
+      },
+      "id": "fetch-template-taxonomy",
+      "name": "Fetch Template Taxonomy",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -2000,
+        -800
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "const taxonomyPayload = $('Fetch Template Taxonomy').first()?.json || {};\n\nconst fallbackRegistry = [\n  { key: 'engagement.greeting_new', description: 'Sapaan untuk kontak baru yang pertama kali chat', reply_mode: 'opening' },\n  { key: 'engagement.greeting_return', description: 'Sapaan untuk pelanggan lama yang kembali setelah lama tidak aktif', reply_mode: 'opening' },\n  { key: 'engagement.time_inquiry', description: 'Pertanyaan jam operasional, ketersediaan slot, atau waktu layanan', reply_mode: 'mixed' },\n  { key: 'discovery.program_detail', description: 'Permintaan penjelasan umum program atau jasa', reply_mode: 'continuation' },\n  { key: 'discovery.schedule_location', description: 'Pertanyaan jadwal, lokasi, atau format online/offline', reply_mode: 'continuation' },\n  { key: 'discovery.tutor_profile', description: 'Pertanyaan profil tim, pengajar, atau tenaga ahli', reply_mode: 'continuation' },\n  { key: 'discovery.curriculum', description: 'Pertanyaan kurikulum, materi, metode, atau tahapan layanan', reply_mode: 'continuation' },\n  { key: 'evaluation.pricing_inquiry', description: 'Pertanyaan harga atau paket tanpa keberatan harga', reply_mode: 'continuation' },\n  { key: 'evaluation.objection_price', description: 'Keberatan harga mahal atau membandingkan value', reply_mode: 'continuation' },\n  { key: 'evaluation.objection_compare', description: 'Perbandingan dengan kompetitor atau penyedia lain', reply_mode: 'continuation' },\n  { key: 'evaluation.objection_risk', description: 'Kekhawatiran risiko, takut tidak cocok, atau takut rugi', reply_mode: 'continuation' },\n  { key: 'evaluation.objection_authority', description: 'Keraguan kredibilitas, pengalaman, atau bukti hasil', reply_mode: 'continuation' },\n  { key: 'evaluation.objection_urgency', description: 'Menunda keputusan, nanti dulu, atau masih pikir-pikir', reply_mode: 'continuation' },\n  { key: 'conversion.soft', description: 'Ajakan lanjut lembut untuk prospek yang sudah tertarik', reply_mode: 'continuation' },\n  { key: 'conversion.transaction', description: 'Instruksi pendaftaran, pembayaran, atau langkah transaksi', reply_mode: 'continuation' },\n  { key: 'conversion.confirm', description: 'Konfirmasi pembayaran/pendaftaran dan langkah selanjutnya', reply_mode: 'continuation' },\n  { key: 'retention.complaint_service', description: 'Keluhan layanan dan permintaan solusi terkait service', reply_mode: 'continuation' },\n  { key: 'retention.complaint_refund', description: 'Permintaan refund atau pengembalian dana', reply_mode: 'continuation' },\n  { key: 'retention.progress_inquiry', description: 'Pertanyaan progres atau status layanan yang sedang berjalan', reply_mode: 'continuation' },\n  { key: 'retention.reschedule', description: 'Permintaan ubah jadwal, pindah slot, atau reschedule', reply_mode: 'continuation' },\n];\n\nconst taxonomyIntents = Array.isArray(taxonomyPayload.intents)\n  ? taxonomyPayload.intents\n  : (Array.isArray(taxonomyPayload.subcategories) ? taxonomyPayload.subcategories : []);\n\nlet registry = taxonomyIntents\n  .filter((i) => i && i.key && i.is_active !== false)\n  .map((i) => ({\n    key: String(i.key).trim().toLowerCase(),\n    description: (i.description || i.label || 'No description provided').toString().trim(),\n    reply_mode: ['opening', 'mixed', 'continuation'].includes(i.reply_mode) ? i.reply_mode : 'continuation',\n    category_key: i.category_key || String(i.key).split('.')[0] || 'general',\n    label: i.label || i.key,\n  }))\n  .filter((i) => i.key);\n\nlet source = 'taxonomy';\nlet taxonomyError = taxonomyPayload.error || taxonomyPayload.message || null;\nif (registry.length === 0) {\n  registry = fallbackRegistry;\n  source = 'fallback-static';\n}\n\nconst dedup = [];\nconst seen = new Set();\nfor (const item of registry) {\n  if (seen.has(item.key)) continue;\n  seen.add(item.key);\n  dedup.push(item);\n}\nregistry = dedup;\n\nconst validIntentKeys = registry.map((i) => i.key);\nconst intentMap = Object.fromEntries(registry.map((i) => [i.key, i]));\nconst preferredFallbacks = ['discovery.program_detail', 'discovery.schedule_location'];\nlet fallbackIntent = preferredFallbacks.find((k) => validIntentKeys.includes(k))\n  || registry.find((i) => i.reply_mode === 'continuation')?.key\n  || validIntentKeys[0]\n  || 'discovery.program_detail';\n\nconst classifierIntentListText = registry\n  .map((i) => '- ' + i.key + ' — ' + i.description + ' (mode: ' + i.reply_mode + ')')\n  .join('\\n');\n\nreturn [{\n  json: {\n    source,\n    taxonomy_error: taxonomyError,\n    registry_count: registry.length,\n    validIntentKeys,\n    intentMap,\n    fallbackIntent,\n    classifierIntentListText,\n    registry,\n  }\n}];"
+      },
+      "id": "build-intent-registry",
+      "name": "Build Intent Registry",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1600,
+        -800
+      ]
+    }
+  ],
+  "connections": {
+    "Chat Webhook": {
+      "main": [
+        [
+          {
+            "node": "Normalize Payload",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalize Payload": {
+      "main": [
+        [
+          {
+            "node": "Has Content?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Has Content?": {
+      "main": [
+        [
+          {
+            "node": "Fetch Responder Context",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Skip Empty",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Context": {
+      "main": [
+        [
+          {
+            "node": "Fetch Template Taxonomy",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Nova Lite (Classifier)": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Intent Classifier",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Intent Classifier": {
+      "main": [
+        [
+          {
+            "node": "Merge Intent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Merge Intent": {
+      "main": [
+        [
+          {
+            "node": "Fetch Templates (By Intent)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build RAG Context": {
+      "main": [
+        [
+          {
+            "node": "Use Greeting LLM?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Nova Micro (Greeting)": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Greeting LLM",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Greeting LLM": {
+      "main": [
+        [
+          {
+            "node": "Clean Output",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Send Error Fallback",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Nova Micro (QA)": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "RAG QA Chain",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Vector Store Retriever": {
+      "ai_retriever": [
+        [
+          {
+            "node": "RAG QA Chain",
+            "type": "ai_retriever",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "PGVector Store": {
+      "ai_vectorStore": [
+        [
+          {
+            "node": "Vector Store Retriever",
+            "type": "ai_vectorStore",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Embeddings AWS Bedrock": {
+      "ai_embedding": [
+        [
+          {
+            "node": "PGVector Store",
+            "type": "ai_embedding",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "RAG QA Chain": {
+      "main": [
+        [
+          {
+            "node": "Clean Output",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Send Error Fallback",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Clean Output": {
+      "main": [
+        [
+          {
+            "node": "Send AI Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send AI Response": {
+      "main": [
+        [
+          {
+            "node": "Respond OK",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Respond Error",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send Error Fallback": {
+      "main": [
+        [
+          {
+            "node": "Respond Error",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Templates (By Intent)": {
+      "main": [
+        [
+          {
+            "node": "Build RAG Context",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Use Greeting LLM?": {
+      "main": [
+        [
+          {
+            "node": "Greeting LLM",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "RAG QA Chain",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Responder Context": {
+      "main": [
+        [
+          {
+            "node": "Prepare Context",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Template Taxonomy": {
+      "main": [
+        [
+          {
+            "node": "Build Intent Registry",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Intent Registry": {
+      "main": [
+        [
+          {
+            "node": "Intent Classifier",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "tags": [
+    {
+      "name": "responder"
+    },
+    {
+      "name": "v4.1"
+    },
+    {
+      "name": "production"
+    }
+  ]
+}
