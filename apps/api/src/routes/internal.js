@@ -586,8 +586,8 @@ async function fetchBotConfigData(botId) {
         rag_min_score: bot.rag_min_score || 0.5,
         llm_provider: bot.llm_provider || 'openai',
         llm_model: bot.llm_model || 'gpt-4o-mini',
-        embed_provider: bot.embed_provider || 'openai',
-        embed_model: bot.embed_model || 'text-embedding-3-small',
+        embed_provider: bot.embed_provider || 'aws_bedrock',
+        embed_model: bot.embed_model || 'amazon.titan-embed-text-v2:0',
         booking_link: bot.booking_link || null,
         handoff_enabled: bot.handoff_enabled
     };

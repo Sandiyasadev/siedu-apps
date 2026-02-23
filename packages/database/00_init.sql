@@ -558,7 +558,7 @@ CREATE TABLE IF NOT EXISTS kb_embeddings (
     bot_id UUID NOT NULL REFERENCES bots(id) ON DELETE CASCADE,
     chunk_index INTEGER,
     content TEXT NOT NULL,
-    embedding vector(1536), -- OpenAI text-embedding-3-small dimension
+    embedding vector(1024), -- Amazon Titan Embed v2 dimension
     metadata JSONB DEFAULT '{}'::jsonb,
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
@@ -572,7 +572,7 @@ CREATE INDEX IF NOT EXISTS idx_kb_embeddings_bot ON kb_embeddings(bot_id);
 CREATE TABLE IF NOT EXISTS n8n_vectors (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     content TEXT,
-    embedding vector(1536),
+    embedding vector(1024),
     metadata JSONB DEFAULT '{}'::jsonb,
     created_at TIMESTAMPTZ DEFAULT NOW()
 );

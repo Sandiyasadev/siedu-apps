@@ -56,8 +56,8 @@ router.post('/', requireRole('admin'), asyncHandler(async (req, res) => {
         handoff_min_score = 0.15,
         llm_provider = 'openai',
         llm_model = 'gpt-4o-mini',
-        embed_provider = 'openai',
-        embed_model = 'text-embedding-3-small'
+        embed_provider = 'aws_bedrock',
+        embed_model = 'amazon.titan-embed-text-v2:0'
     } = req.body;
 
     if (!name) {
