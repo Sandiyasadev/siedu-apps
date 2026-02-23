@@ -5,6 +5,7 @@ const { query } = require('../utils/db');
 const { authenticate, requireRole, getEffectiveWorkspaceId } = require('../middleware/auth');
 const { asyncHandler } = require('../middleware/errorHandler');
 const { seedDefaultTemplateTaxonomyForBot } = require('../services/templateTaxonomyDefaults');
+const { validateWebhookUrl } = require('../utils/urlValidator');
 
 const router = express.Router();
 
@@ -102,6 +103,14 @@ router.patch('/:id', requireRole('admin'), asyncHandler(async (req, res) => {
     const updates = [];
     const values = [];
     let paramIndex = 1;
+
+    // Validate n8n_config.webhook_base_url if present (anti-SSRF)
+    if (req.body.n8n_config && req.body.n8n_config.webhook_base_url) {
+        const urlCheck = await validateWebhookUrl(req.body.n8n_config.webhook_base_url);
+        if (!urlCheck.valid) {
+            return res.status(400).json({ error: `n8n_config.webhook_base_url: ${urlCheck.error}` });
+        }
+    }
 
     for (const field of allowedFields) {
         if (req.body[field] !== undefined) {

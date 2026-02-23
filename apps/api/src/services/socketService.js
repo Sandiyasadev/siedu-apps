@@ -77,6 +77,20 @@ function initSocket(httpServer) {
 
         try {
             const decoded = jwt.verify(token, process.env.JWT_SECRET);
+
+            // Re-check user from DB — prevent stale JWT privilege escalation
+            const userCheck = await query(
+                'SELECT id, role, is_active, workspace_id FROM users WHERE id = $1',
+                [decoded.id]
+            );
+            if (userCheck.rows.length === 0 || !userCheck.rows[0].is_active) {
+                return next(new Error('User deactivated or not found'));
+            }
+            const freshUser = userCheck.rows[0];
+            // Override JWT claims with fresh DB values
+            decoded.role = freshUser.role;
+            decoded.workspace_id = freshUser.workspace_id;
+
             const workspaceCtx = await resolveSocketEffectiveWorkspace(decoded, socket.handshake.auth);
             socket.user = {
                 ...decoded,

@@ -28,9 +28,9 @@ router.get('/:year/:month/:filename', asyncHandler(async (req, res) => {
         `SELECT m.id FROM messages m
          JOIN conversations c ON c.id = m.conversation_id
          JOIN bots b ON b.id = c.bot_id
-         WHERE m.content LIKE $1 AND b.workspace_id = $2
+         WHERE m.content ~ $1 AND b.workspace_id = $2
          LIMIT 1`,
-        [`%${pathKey}%`, getEffectiveWorkspaceId(req)]
+        [`^media::[a-z]+::${pathKey.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`, getEffectiveWorkspaceId(req)]
     );
 
     if (ownerCheck.rows.length === 0) {

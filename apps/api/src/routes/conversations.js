@@ -3,7 +3,7 @@ const router = express.Router();
 const multer = require('multer');
 const { query } = require('../utils/db');
 const asyncHandler = require('../middleware/asyncHandler');
-const { getEffectiveWorkspaceId } = require('../middleware/auth');
+const { getEffectiveWorkspaceId, requireRole } = require('../middleware/auth');
 const { emitNewMessage, emitStatusChange } = require('../services/socketService');
 const cache = require('../utils/cache');
 const { storeOutboundMedia, buildMediaContent, getWhatsAppMediaType } = require('../services/mediaService');
@@ -292,7 +292,7 @@ router.get('/:id', asyncHandler(async (req, res) => {
 // ============================================
 // DELETE /v1/conversations/:id/messages - Clear history
 // ============================================
-router.delete('/:id/messages', asyncHandler(async (req, res) => {
+router.delete('/:id/messages', requireRole('admin'), asyncHandler(async (req, res) => {
     const conversationId = req.params.id;
 
     // Verify conversation belongs to user's workspace
@@ -325,7 +325,7 @@ router.delete('/:id/messages', asyncHandler(async (req, res) => {
 // ============================================
 // PATCH /v1/conversations/:id/contact - Update contact name
 // ============================================
-router.patch('/:id/contact', asyncHandler(async (req, res) => {
+router.patch('/:id/contact', requireRole('admin'), asyncHandler(async (req, res) => {
     const conversationId = req.params.id;
     const { name } = req.body;
 

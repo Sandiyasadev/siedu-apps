@@ -7,6 +7,7 @@ const { findOrCreateContact, linkConversationToContact } = require('../services/
 const { emitNewMessage, emitNewConversation, emitMessageStatus } = require('../services/socketService');
 const { downloadAndStoreMedia, downloadTelegramMedia, extractMediaInfo, buildMediaContent } = require('../services/mediaService');
 const { sendTypingIndicator, sendWhatsAppTypingIndicator } = require('../services/channelService');
+const { safeCompare } = require('../utils/crypto');
 
 const router = express.Router();
 
@@ -102,8 +103,8 @@ const verifyTelegramWebhook = async (req) => {
         return null;
     }
 
-    // Verify it matches our stored secret
-    if (secretToken !== channel.secret) {
+    // Verify it matches our stored secret (timing-safe)
+    if (!safeCompare(secretToken, channel.secret)) {
         console.log('[Telegram] - FAIL: Secret token mismatch');
         return null;
     }
@@ -443,7 +444,7 @@ router.get('/whatsapp/:bot_public_id', asyncHandler(async (req, res) => {
 
     // verify_token is stored in channel config
     const expectedToken = channel.config?.verify_token;
-    if (token !== expectedToken) {
+    if (!safeCompare(token, expectedToken)) {
         console.log('[WhatsApp] - FAIL: Verify token mismatch');
         return res.status(403).send('Invalid verify token');
     }

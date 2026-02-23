@@ -6,6 +6,7 @@ const asyncHandler = require('../middleware/asyncHandler');
 const { emitNewMessage, emitStatusChange } = require('../services/socketService');
 const { sendToChannel } = require('../services/channelService');
 const handoffService = require('../services/handoffService');
+const { safeCompare } = require('../utils/crypto');
 
 // ============================================
 // Internal API - For n8n communication
@@ -36,7 +37,7 @@ const verifyInternalKey = (req, res, next) => {
         return res.status(401).json({ error: 'Missing authorization' });
     }
 
-    if (token !== expectedKey) {
+    if (!safeCompare(token, expectedKey)) {
         return res.status(401).json({ error: 'Invalid API key' });
     }
 
