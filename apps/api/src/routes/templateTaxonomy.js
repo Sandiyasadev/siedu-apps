@@ -4,6 +4,7 @@ const { query } = require('../utils/db');
 const { delByPattern } = require('../utils/cache');
 const asyncHandler = require('../middleware/asyncHandler');
 const { requireRole } = require('../middleware/auth');
+const { seedDefaultTemplateTaxonomyForBot } = require('../services/templateTaxonomyDefaults');
 
 const parseBool = (value) => {
     if (value === undefined) return undefined;
@@ -137,6 +138,37 @@ router.get('/', asyncHandler(async (req, res) => {
         subcategories,
         grouped: Array.from(groupedMap.values()),
         uncategorized_subcategories: uncategorized
+    });
+}));
+
+// ============================================
+// POST /v1/template-taxonomy/apply-default
+// Seed default taxonomy for a bot (idempotent)
+// ============================================
+router.post('/apply-default', requireRole('admin'), asyncHandler(async (req, res) => {
+    const { bot_id } = req.body || {};
+    const mode = String(req.body?.mode || 'skip_existing').trim();
+
+    if (!bot_id) {
+        return res.status(400).json({ error: 'bot_id is required' });
+    }
+    if (!['skip_existing', 'reactivate_existing'].includes(mode)) {
+        return res.status(400).json({ error: 'Invalid mode. Use skip_existing or reactivate_existing' });
+    }
+
+    const bot = await assertBotInWorkspace(bot_id, req.user.workspace_id);
+    if (!bot) {
+        return res.status(404).json({ error: 'Bot not found' });
+    }
+
+    const summary = await seedDefaultTemplateTaxonomyForBot(bot_id, { mode });
+    res.json({
+        success: true,
+        message: mode === 'reactivate_existing'
+            ? 'Default taxonomy applied and default keys reactivated'
+            : 'Default taxonomy applied (missing keys only)',
+        mode,
+        summary
     });
 }));
 

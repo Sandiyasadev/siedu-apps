@@ -1,0 +1,11 @@
+{
+  "preset_key": "default-v1",
+  "preset_version": 1,
+  "meta": {
+    "name": "Default Master Templates V1",
+    "mode": "taxonomy-driven",
+    "source": "generator-review-json",
+    "note": "Placeholder preset file. Replace templates[] with reviewed generator output templates before using Apply Default Templates in production."
+  },
+  "templates": []
+}

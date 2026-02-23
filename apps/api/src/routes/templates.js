@@ -4,6 +4,7 @@ const { query } = require('../utils/db');
 const { delByPattern } = require('../utils/cache');
 const asyncHandler = require('../middleware/asyncHandler');
 const { requireRole } = require('../middleware/auth');
+const { seedDefaultTemplatesForBot } = require('../services/templateDefaults');
 
 const parseBool = (value) => {
     if (value === undefined) return undefined;
@@ -99,6 +100,50 @@ router.get('/:id', asyncHandler(async (req, res) => {
     }
 
     res.json({ template: result.rows[0] });
+}));
+
+// ============================================
+// POST /v1/templates/apply-default
+// Seed default templates preset to a bot (idempotent)
+// ============================================
+router.post('/apply-default', requireRole('admin'), asyncHandler(async (req, res) => {
+    const { bot_id } = req.body || {};
+    const mode = String(req.body?.mode || 'skip_existing').trim();
+    const presetKey = String(req.body?.preset_key || 'default-v1').trim();
+
+    if (!bot_id) {
+        return res.status(400).json({ error: 'bot_id is required' });
+    }
+    if (!['skip_existing', 'reactivate_existing'].includes(mode)) {
+        return res.status(400).json({ error: 'Invalid mode. Use skip_existing or reactivate_existing' });
+    }
+
+    const botCheck = await query(
+        `SELECT id FROM bots WHERE id = $1 AND workspace_id = $2`,
+        [bot_id, req.user.workspace_id]
+    );
+
+    if (botCheck.rows.length === 0) {
+        return res.status(404).json({ error: 'Bot not found' });
+    }
+
+    try {
+        const summary = await seedDefaultTemplatesForBot(bot_id, { mode, presetKey });
+        res.json({
+            success: true,
+            message: mode === 'reactivate_existing'
+                ? 'Default templates applied and eligible templates reactivated'
+                : 'Default templates applied (missing templates only)',
+            mode,
+            preset_key: presetKey,
+            summary,
+        });
+    } catch (error) {
+        if (['PRESET_NOT_FOUND', 'PRESET_READ_FAILED', 'PRESET_INVALID_JSON', 'PRESET_EMPTY'].includes(error.code)) {
+            return res.status(400).json({ error: error.message, code: error.code });
+        }
+        throw error;
+    }
 }));
 
 // ============================================

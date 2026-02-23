@@ -4,6 +4,7 @@ const fetch = require('node-fetch');
 const { query } = require('../utils/db');
 const { authenticate, requireRole } = require('../middleware/auth');
 const { asyncHandler } = require('../middleware/errorHandler');
+const { seedDefaultTemplateTaxonomyForBot } = require('../services/templateTaxonomyDefaults');
 
 const router = express.Router();
 
@@ -73,7 +74,21 @@ router.post('/', requireRole('admin'), asyncHandler(async (req, res) => {
             embed_provider, embed_model]
     );
 
-    res.status(201).json({ bot: result.rows[0] });
+    let taxonomySeed = { success: true, skipped: true };
+    try {
+        const seedSummary = await seedDefaultTemplateTaxonomyForBot(result.rows[0].id, {
+            mode: 'skip_existing'
+        });
+        taxonomySeed = { success: true, ...seedSummary };
+    } catch (seedError) {
+        console.error('[Bots] Failed to seed default template taxonomy:', {
+            bot_id: result.rows[0].id,
+            error: seedError.message
+        });
+        taxonomySeed = { success: false, error: seedError.message };
+    }
+
+    res.status(201).json({ bot: result.rows[0], taxonomy_seed: taxonomySeed });
 }));
 
 // PATCH /v1/bots/:id - Update bot
