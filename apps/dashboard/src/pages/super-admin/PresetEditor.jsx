@@ -3,7 +3,7 @@ import { useAuth } from '../../App'
 import { API_BASE } from '../../config/api'
 import {
     Package, ChevronRight, ChevronDown, FolderOpen, Folder, FileText,
-    Plus, Trash2, RefreshCw, Zap, AlertTriangle, CheckCircle2, X,
+    Plus, Trash2, RefreshCw, Download, Upload, AlertTriangle, CheckCircle2, X,
     Edit2, Save, MoreVertical
 } from 'lucide-react'
 
@@ -26,7 +26,8 @@ function PresetEditor() {
     const [notice, setNotice] = useState(null)
     const [expandedCats, setExpandedCats] = useState(new Set())
     const [expandedSubs, setExpandedSubs] = useState(new Set())
-    const [bootstrapLoading, setBootstrapLoading] = useState(false)
+    const [importLoading, setImportLoading] = useState(false)
+    const [importPreview, setImportPreview] = useState(null)
     const [modal, setModal] = useState(null)
     const [modalForm, setModalForm] = useState({})
 
@@ -77,20 +78,62 @@ function PresetEditor() {
         const n = new Set(prev); n.has(key) ? n.delete(key) : n.add(key); return n
     })
 
-    // Bootstrap
-    const handleBootstrap = async () => {
-        setBootstrapLoading(true)
+    // Export bundle
+    const handleExport = async () => {
+        if (!bundle) return
+        setSaving(true)
         try {
-            const res = await fetch(`${API_BASE}/v1/admin/presets/bootstrap-defaults`, {
-                method: 'POST', headers: headers(), body: JSON.stringify({})
+            const res = await fetch(`${API_BASE}/v1/admin/preset-bundles/${bundle.id}/export`, { headers: headers() })
+            if (!res.ok) throw new Error('Export gagal')
+            const data = await res.json()
+            const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' })
+            const url = URL.createObjectURL(blob)
+            const a = document.createElement('a')
+            a.href = url
+            a.download = `bundle_${bundle.key}_${new Date().toISOString().slice(0, 10)}.json`
+            a.click()
+            URL.revokeObjectURL(url)
+            setNotice({ type: 'success', message: 'Bundle exported!' })
+        } catch (err) { setNotice({ type: 'error', message: err.message }) }
+        finally { setSaving(false) }
+    }
+
+    // Import bundle — file select
+    const handleImportFileSelect = (e) => {
+        const file = e.target.files?.[0]
+        if (!file) return
+        const reader = new FileReader()
+        reader.onload = (ev) => {
+            try {
+                const json = JSON.parse(ev.target.result)
+                if (!json.bundle || !Array.isArray(json.categories) || !Array.isArray(json.items)) {
+                    throw new Error('Format JSON tidak valid: harus memiliki bundle, categories, dan items')
+                }
+                setImportPreview(json)
+                setModal('import-preview')
+            } catch (err) { setNotice({ type: 'error', message: err.message }) }
+        }
+        reader.readAsText(file)
+        e.target.value = ''
+    }
+
+    // Import bundle — confirm
+    const handleImportConfirm = async () => {
+        if (!importPreview) return
+        setImportLoading(true)
+        try {
+            const res = await fetch(`${API_BASE}/v1/admin/preset-bundles/import`, {
+                method: 'POST', headers: headers(), body: JSON.stringify(importPreview)
             })
             const data = await res.json()
-            if (!res.ok) throw new Error(data.error || 'Bootstrap gagal')
-            setNotice({ type: 'success', message: `Bootstrap OK: ${data.summary?.categories_count || 0} categories, ${data.summary?.items_count || 0} items` })
+            if (!res.ok) throw new Error(data.error || 'Import gagal')
+            setNotice({ type: 'success', message: `Import berhasil: ${data.summary?.categories_created || 0} categories, ${data.summary?.subcategories_created || 0} intents, ${data.summary?.items_created || 0} items` })
+            setModal(null)
+            setImportPreview(null)
             await fetchBundles()
-            if (data.summary?.bundle?.id) setSelectedBundleId(data.summary.bundle.id)
+            if (data.bundle?.id) setSelectedBundleId(data.bundle.id)
         } catch (err) { setNotice({ type: 'error', message: err.message }) }
-        finally { setBootstrapLoading(false) }
+        finally { setImportLoading(false) }
     }
 
     // Status change
@@ -211,9 +254,9 @@ function PresetEditor() {
                     <p className="page-subtitle">Kelola bundle preset — categories, intents, dan template items</p>
                 </div>
                 <div style={{ display: 'flex', gap: 'var(--space-2)' }}>
-                    <button className="btn btn-secondary" onClick={handleBootstrap} disabled={bootstrapLoading}>
-                        {bootstrapLoading ? <RefreshCw size={14} className="spinner" /> : <Zap size={14} />}
-                        Bootstrap Defaults
+                    <input type="file" id="import-file" accept=".json" style={{ display: 'none' }} onChange={handleImportFileSelect} />
+                    <button className="btn btn-primary" onClick={() => document.getElementById('import-file').click()}>
+                        <Upload size={14} /> Import JSON
                     </button>
                     <button className="btn btn-secondary" onClick={() => fetchBundles()} disabled={loading}>
                         <RefreshCw size={14} className={loading ? 'spinner' : ''} />
@@ -252,7 +295,7 @@ function PresetEditor() {
                         ) : bundles.length === 0 ? (
                             <div style={{ textAlign: 'center', padding: 'var(--space-6)', color: 'var(--gray-400)' }}>
                                 <Package size={28} style={{ marginBottom: 'var(--space-2)', opacity: 0.4 }} />
-                                <p className="text-sm">Belum ada bundle. Klik Bootstrap Defaults.</p>
+                                <p className="text-sm">Belum ada bundle. Klik Import JSON.</p>
                             </div>
                         ) : bundles.map(b => (
                             <div key={b.id} onClick={() => setSelectedBundleId(b.id)}
@@ -303,6 +346,9 @@ function PresetEditor() {
                                         <h2 style={{ fontSize: 'var(--font-size-lg)', fontWeight: 700, margin: 0 }}>{bundle.name}</h2>
                                         <span className={statusBadge(bundle.status)}>{bundle.status}</span>
                                         <div style={{ marginLeft: 'auto', display: 'flex', gap: 'var(--space-2)' }}>
+                                            <button className="btn btn-ghost btn-sm" onClick={handleExport} disabled={saving} title="Export JSON">
+                                                <Download size={12} /> Export
+                                            </button>
                                             {bundle.status !== 'published' && (
                                                 <button className="btn btn-success btn-sm" onClick={() => handleStatusChange('published')} disabled={saving}>
                                                     <CheckCircle2 size={12} /> Publish
@@ -334,7 +380,7 @@ function PresetEditor() {
                             {categories.length === 0 ? (
                                 <div className="card">
                                     <div className="card-body" style={{ textAlign: 'center', padding: 'var(--space-8)', color: 'var(--gray-400)' }}>
-                                        <p className="text-sm">Belum ada category. Klik "Tambah Category" atau "Bootstrap Defaults".</p>
+                                        <p className="text-sm">Belum ada category. Klik "Tambah Category" atau import bundle dari JSON.</p>
                                     </div>
                                 </div>
                             ) : categories.map(cat => {
@@ -464,7 +510,7 @@ function PresetEditor() {
                     display: 'grid', placeItems: 'center',
                     background: 'rgba(0,0,0,0.3)', backdropFilter: 'blur(2px)'
                 }} onClick={() => setModal(null)}>
-                    <div className="card" style={{ width: '100%', maxWidth: modal.includes('item') ? 560 : 440, margin: 'var(--space-4)' }} onClick={e => e.stopPropagation()}>
+                    <div className="card" style={{ width: '100%', maxWidth: modal.includes('item') || modal === 'import-preview' ? 560 : 440, margin: 'var(--space-4)' }} onClick={e => e.stopPropagation()}>
                         <div className="card-header">
                             <h2 className="card-title">
                                 {modal === 'add-category' && 'Tambah Category'}
@@ -473,6 +519,7 @@ function PresetEditor() {
                                 {modal === 'edit-subcategory' && 'Edit Intent (Subcategory)'}
                                 {modal === 'add-item' && 'Tambah Template Item'}
                                 {modal === 'edit-item' && 'Edit Template Item'}
+                                {modal === 'import-preview' && 'Import Bundle Preview'}
                             </h2>
                             <button className="btn btn-ghost btn-sm" onClick={() => setModal(null)}><X size={16} /></button>
                         </div>
@@ -566,12 +613,46 @@ function PresetEditor() {
                                     </>
                                 )}
                             </div>
+
+                            {/* Import preview */}
+                            {modal === 'import-preview' && importPreview && (
+                                <div className="card-body">
+                                    <div style={{ padding: 'var(--space-4)', borderRadius: 'var(--radius-md)', background: 'var(--gray-50)', border: '1px solid var(--gray-200)' }}>
+                                        <div style={{ fontWeight: 600, marginBottom: 'var(--space-2)' }}>{importPreview.bundle?.name || 'Unnamed'}</div>
+                                        <div className="text-xs text-muted" style={{ marginBottom: 'var(--space-1)' }}>Key: <code>{importPreview.bundle?.key || '-'}</code> · v{importPreview.bundle?.version || 1}</div>
+                                        {importPreview.bundle?.description && <p className="text-sm text-muted">{importPreview.bundle.description}</p>}
+                                    </div>
+                                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 'var(--space-3)', marginTop: 'var(--space-3)' }}>
+                                        <div style={{ padding: 'var(--space-3)', borderRadius: 'var(--radius-md)', background: 'var(--primary-50)', textAlign: 'center' }}>
+                                            <div style={{ fontSize: 'var(--font-size-xl)', fontWeight: 700, color: 'var(--primary-700)' }}>{importPreview.categories?.length || 0}</div>
+                                            <div className="text-xs text-muted">Categories</div>
+                                        </div>
+                                        <div style={{ padding: 'var(--space-3)', borderRadius: 'var(--radius-md)', background: 'var(--primary-50)', textAlign: 'center' }}>
+                                            <div style={{ fontSize: 'var(--font-size-xl)', fontWeight: 700, color: 'var(--primary-700)' }}>{importPreview.subcategories?.length || 0}</div>
+                                            <div className="text-xs text-muted">Intents</div>
+                                        </div>
+                                        <div style={{ padding: 'var(--space-3)', borderRadius: 'var(--radius-md)', background: 'var(--primary-50)', textAlign: 'center' }}>
+                                            <div style={{ fontSize: 'var(--font-size-xl)', fontWeight: 700, color: 'var(--primary-700)' }}>{importPreview.items?.length || 0}</div>
+                                            <div className="text-xs text-muted">Templates</div>
+                                        </div>
+                                    </div>
+                                    <p className="text-xs text-muted" style={{ marginTop: 'var(--space-3)' }}>Bundle baru akan dibuat dengan status <strong>draft</strong>. Anda bisa publish setelah review.</p>
+                                </div>
+                            )}
+
                             <div className="card-footer" style={{ display: 'flex', justifyContent: 'flex-end', gap: 'var(--space-3)' }}>
-                                <button type="button" className="btn btn-secondary" onClick={() => setModal(null)}>Batal</button>
-                                <button type="submit" className="btn btn-primary" disabled={saving}>
-                                    {saving ? <RefreshCw size={14} className="spinner" /> : null}
-                                    Simpan
-                                </button>
+                                <button type="button" className="btn btn-secondary" onClick={() => { setModal(null); setImportPreview(null) }}>Batal</button>
+                                {modal === 'import-preview' ? (
+                                    <button type="button" className="btn btn-primary" onClick={handleImportConfirm} disabled={importLoading}>
+                                        {importLoading ? <RefreshCw size={14} className="spinner" /> : <Upload size={14} />}
+                                        Import Bundle
+                                    </button>
+                                ) : (
+                                    <button type="submit" className="btn btn-primary" disabled={saving}>
+                                        {saving ? <RefreshCw size={14} className="spinner" /> : null}
+                                        Simpan
+                                    </button>
+                                )}
                             </div>
                         </form>
                     </div>

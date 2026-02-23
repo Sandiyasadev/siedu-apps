@@ -722,6 +722,174 @@ router.post('/preset-bundles/:id/import-items', asyncHandler(async (req, res) =>
 }));
 
 // ============================================
+// EXPORT BUNDLE (full JSON download)
+// ============================================
+router.get('/preset-bundles/:id/export', asyncHandler(async (req, res) => {
+    const bundleResult = await query('SELECT * FROM preset_bundles WHERE id = $1', [req.params.id]);
+    if (bundleResult.rows.length === 0) return res.status(404).json({ error: 'Preset bundle not found' });
+    const bundle = bundleResult.rows[0];
+
+    const [catRes, subRes, itemRes] = await Promise.all([
+        query('SELECT key, label, description, sort_order, is_active FROM preset_categories WHERE bundle_id = $1 ORDER BY sort_order, key', [bundle.id]),
+        query('SELECT key, label, category_key, description, reply_mode, greeting_policy, default_template_count, strategy_pool, sort_order, is_active FROM preset_subcategories WHERE bundle_id = $1 ORDER BY sort_order, key', [bundle.id]),
+        query('SELECT name, content, category, sub_category, shortcut, strategy_tag, requires_rag, sort_order, is_active FROM preset_items WHERE bundle_id = $1 ORDER BY sort_order, name', [bundle.id]),
+    ]);
+
+    const output = {
+        bundle: {
+            name: bundle.name,
+            key: bundle.key,
+            version: bundle.version,
+            description: bundle.description || null,
+        },
+        categories: catRes.rows,
+        subcategories: subRes.rows.map(s => ({
+            ...s,
+            strategy_pool: Array.isArray(s.strategy_pool) ? s.strategy_pool : [],
+        })),
+        items: itemRes.rows,
+        meta: {
+            exported_at: new Date().toISOString(),
+            source_bundle_id: bundle.id,
+            exported_by: req.user.id,
+        },
+    };
+
+    res.json(output);
+}));
+
+// ============================================
+// IMPORT FULL BUNDLE (from JSON)
+// ============================================
+router.post('/preset-bundles/import', asyncHandler(async (req, res) => {
+    const payload = req.body;
+
+    // Validate structure
+    if (!payload || typeof payload !== 'object') return res.status(400).json({ error: 'Request body must be a JSON object' });
+    if (!payload.bundle || typeof payload.bundle !== 'object') return res.status(400).json({ error: 'Missing or invalid "bundle" object' });
+    if (!payload.bundle.name || !payload.bundle.key) return res.status(400).json({ error: '"bundle.name" and "bundle.key" are required' });
+    if (!Array.isArray(payload.categories)) return res.status(400).json({ error: '"categories" must be an array' });
+    if (!Array.isArray(payload.subcategories)) return res.status(400).json({ error: '"subcategories" must be an array' });
+    if (!Array.isArray(payload.items)) return res.status(400).json({ error: '"items" must be an array' });
+
+    const bundleKey = normalizeKey(payload.bundle.key);
+    const bundleName = normalizeOptionalText(payload.bundle.name);
+    const bundleVersion = Number.isInteger(payload.bundle.version) && payload.bundle.version > 0 ? payload.bundle.version : 1;
+    const bundleDescription = normalizeOptionalText(payload.bundle.description) || null;
+
+    if (!bundleKey || !bundleName) return res.status(400).json({ error: 'bundle key and name are required' });
+
+    const summary = { categories_created: 0, subcategories_created: 0, items_created: 0, items_skipped: 0 };
+
+    const result = await transaction(async (client) => {
+        // Check for key collision — if exists, make key unique
+        let finalKey = bundleKey;
+        const existing = await client.query(
+            'SELECT id FROM preset_bundles WHERE key = $1 AND version = $2 AND workspace_id IS NULL LIMIT 1',
+            [bundleKey, bundleVersion]
+        );
+        if (existing.rows.length > 0) {
+            finalKey = `${bundleKey}-import-${Date.now()}`;
+        }
+
+        // 1. Create bundle
+        const bundleRow = await client.query(
+            `INSERT INTO preset_bundles (workspace_id, key, name, version, status, description, metadata, created_by, updated_by)
+             VALUES (NULL, $1, $2, $3, 'draft', $4, $5::jsonb, $6, $7) RETURNING *`,
+            [finalKey, bundleName, bundleVersion, bundleDescription,
+                JSON.stringify({ source: 'json-import', imported_at: new Date().toISOString(), original_key: bundleKey }),
+                req.user.id, req.user.id]
+        );
+        const bundleId = bundleRow.rows[0].id;
+
+        // 2. Insert categories
+        const categoryKeys = new Set();
+        for (let i = 0; i < payload.categories.length; i++) {
+            const cat = payload.categories[i];
+            const key = normalizeKey(cat.key);
+            const label = normalizeOptionalText(cat.label);
+            if (!key || !label) continue;
+            categoryKeys.add(key);
+
+            await client.query(
+                `INSERT INTO preset_categories (bundle_id, key, label, description, sort_order, is_active, metadata)
+                 VALUES ($1,$2,$3,$4,$5,$6,$7::jsonb)`,
+                [bundleId, key, label, normalizeOptionalText(cat.description) || null,
+                    parseInt(cat.sort_order, 10) || i, cat.is_active !== false,
+                    JSON.stringify({ source: 'json-import' })]
+            );
+            summary.categories_created++;
+        }
+
+        // 3. Insert subcategories
+        const subcategoryKeys = new Set();
+        for (let i = 0; i < payload.subcategories.length; i++) {
+            const sub = payload.subcategories[i];
+            const key = normalizeKey(sub.key);
+            const label = normalizeOptionalText(sub.label);
+            const categoryKey = normalizeKey(sub.category_key);
+            if (!key || !label || !categoryKey) continue;
+
+            // Auto-create missing category if not already present
+            if (!categoryKeys.has(categoryKey)) {
+                await client.query(
+                    `INSERT INTO preset_categories (bundle_id, key, label, description, sort_order, is_active, metadata)
+                     VALUES ($1,$2,$3,$4,$5,$6,$7::jsonb)`,
+                    [bundleId, categoryKey, categoryKey.charAt(0).toUpperCase() + categoryKey.slice(1),
+                        null, categoryKeys.size, true, JSON.stringify({ source: 'json-import-auto' })]
+                );
+                categoryKeys.add(categoryKey);
+                summary.categories_created++;
+            }
+
+            subcategoryKeys.add(key);
+            const replyMode = isValidReplyMode(sub.reply_mode) ? sub.reply_mode : 'continuation';
+            const greetingPolicy = isValidGreetingPolicy(sub.greeting_policy) ? sub.greeting_policy : 'forbidden';
+            const defaultCount = parseInt(sub.default_template_count, 10);
+            const strategyPool = Array.isArray(sub.strategy_pool) ? sub.strategy_pool : [];
+
+            await client.query(
+                `INSERT INTO preset_subcategories (bundle_id, category_key, key, label, description,
+                    reply_mode, greeting_policy, default_template_count, strategy_pool, sort_order, is_active, metadata)
+                 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9::jsonb,$10,$11,$12::jsonb)`,
+                [bundleId, categoryKey, key, label, normalizeOptionalText(sub.description) || null,
+                    replyMode, greetingPolicy, Number.isFinite(defaultCount) && defaultCount > 0 ? defaultCount : 3,
+                    JSON.stringify(strategyPool), parseInt(sub.sort_order, 10) || i,
+                    sub.is_active !== false, JSON.stringify({ source: 'json-import' })]
+            );
+            summary.subcategories_created++;
+        }
+
+        // 4. Insert items
+        for (let i = 0; i < payload.items.length; i++) {
+            const item = payload.items[i];
+            const name = normalizeOptionalText(item.name);
+            const content = normalizeOptionalText(item.content);
+            const category = normalizeKey(item.category);
+            const subCategory = normalizeKey(item.sub_category);
+            if (!name || !content || !category) { summary.items_skipped++; continue; }
+
+            await client.query(
+                `INSERT INTO preset_items (bundle_id, name, content, category, sub_category, shortcut,
+                    is_active, strategy_tag, requires_rag, sort_order, metadata)
+                 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11::jsonb)`,
+                [bundleId, name, content, category, subCategory || null,
+                    item.shortcut ? String(item.shortcut).trim() : null,
+                    item.is_active !== false,
+                    item.strategy_tag ? String(item.strategy_tag).trim() : null,
+                    item.requires_rag === true, parseInt(item.sort_order, 10) || i,
+                    JSON.stringify({ source: 'json-import' })]
+            );
+            summary.items_created++;
+        }
+
+        return { bundle: bundleRow.rows[0], finalKey };
+    });
+
+    res.status(201).json({ success: true, bundle: result.bundle, summary });
+}));
+
+// ============================================
 // BOOTSTRAP DEFAULTS FROM LOCAL SOURCES
 // ============================================
 router.post('/presets/bootstrap-defaults', asyncHandler(async (req, res) => {

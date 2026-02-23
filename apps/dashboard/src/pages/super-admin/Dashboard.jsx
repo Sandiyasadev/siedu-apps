@@ -3,7 +3,7 @@ import { useAuth } from '../../App'
 import { API_BASE } from '../../config/api'
 import {
     Building2, Users, Bot, MessageSquare, Mail, BookOpen,
-    RefreshCw, UserPlus, Plus, Zap, AlertTriangle
+    RefreshCw, UserPlus, Plus, Package, AlertTriangle
 } from 'lucide-react'
 
 function SADashboard() {
@@ -93,7 +93,7 @@ function SADashboard() {
                         <div style={{ display: 'flex', gap: 'var(--space-3)', flexWrap: 'wrap' }}>
                             <a href="/sa/users" className="btn btn-secondary"><UserPlus size={16} /> Tambah User</a>
                             <a href="/sa/workspaces" className="btn btn-secondary"><Plus size={16} /> Tambah Workspace</a>
-                            <a href="/sa/preset-editor" className="btn btn-secondary"><Zap size={16} /> Bootstrap Presets</a>
+                            <a href="/sa/preset-editor" className="btn btn-secondary"><Package size={16} /> Kelola Presets</a>
                         </div>
                     </div>
 
