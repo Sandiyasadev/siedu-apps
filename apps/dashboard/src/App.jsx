@@ -125,17 +125,79 @@ function HomeIndexRoute() {
 function App() {
     const [user, setUser] = useState(null)
     const [loading, setLoading] = useState(true)
+    const refreshPromiseRef = { current: null }
 
     useEffect(() => {
-        // Check for existing token
-        const token = localStorage.getItem('token')
+        // Migrate from old 'token' key if present
+        const oldToken = localStorage.getItem('token')
+        if (oldToken) {
+            localStorage.removeItem('token')
+            localStorage.removeItem('user')
+        }
+
+        // Check for existing tokens
+        const accessToken = localStorage.getItem('accessToken')
         const userData = localStorage.getItem('user')
 
-        if (token && userData) {
-            setUser(JSON.parse(userData))
+        if (accessToken && userData) {
+            try {
+                setUser(JSON.parse(userData))
+            } catch {
+                localStorage.clear()
+            }
         }
         setLoading(false)
     }, [])
+
+    // Decode JWT to check expiry (no verification, just reading claims)
+    const isTokenExpired = (token) => {
+        try {
+            const payload = JSON.parse(atob(token.split('.')[1]))
+            return payload.exp * 1000 < Date.now() - 30000 // 30s buffer
+        } catch {
+            return true
+        }
+    }
+
+    const refreshAccessToken = async () => {
+        // Deduplicate concurrent refresh calls
+        if (refreshPromiseRef.current) return refreshPromiseRef.current
+
+        const refreshToken = localStorage.getItem('refreshToken')
+        if (!refreshToken) {
+            throw new Error('No refresh token')
+        }
+
+        refreshPromiseRef.current = (async () => {
+            try {
+                const res = await fetch(`${API_BASE}/v1/auth/refresh`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ refreshToken })
+                })
+
+                if (!res.ok) {
+                    throw new Error('Refresh failed')
+                }
+
+                const data = await res.json()
+                localStorage.setItem('accessToken', data.accessToken)
+                localStorage.setItem('refreshToken', data.refreshToken)
+                return data.accessToken
+            } catch (err) {
+                // Refresh failed — force logout
+                localStorage.removeItem('accessToken')
+                localStorage.removeItem('refreshToken')
+                localStorage.removeItem('user')
+                setUser(null)
+                throw err
+            } finally {
+                refreshPromiseRef.current = null
+            }
+        })()
+
+        return refreshPromiseRef.current
+    }
 
     const login = async (email, password) => {
         const res = await fetch(`${API_BASE}/v1/auth/login`, {
@@ -150,22 +212,68 @@ function App() {
         }
 
         const data = await res.json()
-        localStorage.setItem('token', data.token)
+        localStorage.setItem('accessToken', data.accessToken)
+        localStorage.setItem('refreshToken', data.refreshToken)
         localStorage.setItem('user', JSON.stringify(data.user))
         setUser(data.user)
         return data
     }
 
-    const logout = () => {
-        localStorage.removeItem('token')
-        localStorage.removeItem('user')
-        setUser(null)
+    const logout = async () => {
+        try {
+            const accessToken = localStorage.getItem('accessToken')
+            const refreshToken = localStorage.getItem('refreshToken')
+            if (accessToken) {
+                await fetch(`${API_BASE}/v1/auth/logout`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${accessToken}`
+                    },
+                    body: JSON.stringify({ refreshToken })
+                }).catch(() => { }) // best-effort
+            }
+        } finally {
+            localStorage.removeItem('accessToken')
+            localStorage.removeItem('refreshToken')
+            localStorage.removeItem('user')
+            setUser(null)
+        }
     }
 
-    const getToken = () => localStorage.getItem('token')
+    const getToken = () => localStorage.getItem('accessToken')
+
+    // Auto-refresh fetch wrapper: retries once with a fresh token on 401
+    const authFetch = async (url, options = {}) => {
+        let token = getToken()
+        const mergedOptions = {
+            ...options,
+            headers: {
+                ...options.headers,
+                'Authorization': `Bearer ${token}`,
+            }
+        }
+
+        let res = await fetch(url, mergedOptions)
+
+        // If 401 with TOKEN_EXPIRED, try refresh once
+        if (res.status === 401) {
+            try {
+                const newToken = await refreshAccessToken()
+                if (newToken) {
+                    mergedOptions.headers['Authorization'] = `Bearer ${newToken}`
+                    res = await fetch(url, mergedOptions)
+                }
+            } catch {
+                // Refresh failed — return original 401
+            }
+        }
+
+        return res
+    }
 
     return (
-        <AuthContext.Provider value={{ user, loading, login, logout, getToken }}>
+        <AuthContext.Provider value={{ user, loading, login, logout, getToken, authFetch }}>
             <BrowserRouter>
                 <Routes>
                     <Route path="/login" element={<Login />} />

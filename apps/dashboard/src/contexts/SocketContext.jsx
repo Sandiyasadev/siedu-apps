@@ -73,7 +73,7 @@ export function SocketProvider({ children }) {
     const listenersRef = useRef(new Map()) // Custom event listeners from pages
 
     // Get token from localStorage
-    const getToken = useCallback(() => localStorage.getItem('token'), [])
+    const getToken = useCallback(() => localStorage.getItem('accessToken'), [])
 
     // Fetch TRUE unread count from backend API
     const fetchUnreadCount = useCallback(async () => {

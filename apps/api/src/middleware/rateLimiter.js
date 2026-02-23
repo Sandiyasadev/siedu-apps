@@ -7,6 +7,7 @@ if (isDevNoLimit) {
     module.exports = {
         apiLimiter: passthroughLimiter,
         authLimiter: passthroughLimiter,
+        loginLimiter: passthroughLimiter,
         webhookLimiter: passthroughLimiter,
         uploadLimiter: passthroughLimiter,
     };
@@ -56,11 +57,23 @@ if (isDevNoLimit) {
         message: { error: 'Too many requests, please try again later.' },
     });
 
-    // Auth endpoints rate limiter (stricter)
+    // Auth endpoints rate limiter — global per IP (fallback)
     const authLimiter = createLimiter({
         windowMs: 60 * 60 * 1000, // 1 hour
-        max: 10, // 10 login attempts per hour
+        max: 10, // 10 login attempts per hour per IP
         message: { error: 'Too many login attempts, please try again later.' },
+    });
+
+    // Login rate limiter — per IP+email combo (stricter, per-account protection)
+    const loginLimiter = createLimiter({
+        windowMs: 15 * 60 * 1000, // 15 minutes
+        max: 5, // 5 attempts per 15 min per IP+email
+        message: { error: 'Too many login attempts for this account. Please try again in 15 minutes.' },
+        keyGenerator: (req) => {
+            const email = (req.body?.email || 'unknown').toLowerCase().trim();
+            const ip = req.ip || req.headers?.['x-forwarded-for'] || 'unknown';
+            return `login:${ip}:${email}`;
+        },
     });
 
     // Webhook rate limiter (per channel path, lenient for integrations)
@@ -85,6 +98,7 @@ if (isDevNoLimit) {
     module.exports = {
         apiLimiter,
         authLimiter,
+        loginLimiter,
         webhookLimiter,
         uploadLimiter
     };

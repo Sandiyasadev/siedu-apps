@@ -1,4 +1,5 @@
 const jwt = require("jsonwebtoken");
+const crypto = require("crypto");
 const { query } = require("../utils/db");
 
 const JWT_SECRET = process.env.JWT_SECRET;
@@ -6,6 +7,9 @@ if (!JWT_SECRET) {
   console.error('FATAL: JWT_SECRET environment variable is not set. Refusing to start.');
   process.exit(1);
 }
+
+const ACCESS_TOKEN_EXPIRY = process.env.JWT_ACCESS_EXPIRES_IN || "1h";
+const REFRESH_TOKEN_EXPIRY_DAYS = parseInt(process.env.JWT_REFRESH_EXPIRES_DAYS || "7", 10);
 
 const WORKSPACE_OVERRIDE_HEADER = "x-workspace-id";
 
@@ -132,7 +136,7 @@ const logWorkspaceOverrideAccess = async (req) => {
   }
 };
 
-// Authenticate JWT token
+// Authenticate JWT access token
 const authenticate = async (req, res, next) => {
   try {
     const authHeader = req.headers.authorization;
@@ -167,7 +171,7 @@ const authenticate = async (req, res, next) => {
       return res.status(401).json({ error: "Invalid token" });
     }
     if (error.name === "TokenExpiredError") {
-      return res.status(401).json({ error: "Token expired" });
+      return res.status(401).json({ error: "Token expired", code: "TOKEN_EXPIRED" });
     }
     if (error.status) {
       return res.status(error.status).json({
@@ -195,12 +199,109 @@ const requireRole = (...roles) => {
   };
 };
 
-// Generate JWT token
-const generateToken = (user) => {
+// Generate short-lived access token (1h default)
+const generateAccessToken = (user) => {
   return jwt.sign(
     { userId: user.id, email: user.email, role: user.role, workspace_id: user.workspace_id },
     JWT_SECRET,
-    { expiresIn: process.env.JWT_EXPIRES_IN || "7d" },
+    { expiresIn: ACCESS_TOKEN_EXPIRY },
+  );
+};
+
+// Backward-compat alias
+const generateToken = generateAccessToken;
+
+// Generate refresh token + store in DB
+const generateRefreshToken = async (user, req = {}) => {
+  const rawToken = crypto.randomBytes(48).toString('hex');
+  const tokenHash = crypto.createHash('sha256').update(rawToken).digest('hex');
+  const expiresAt = new Date(Date.now() + REFRESH_TOKEN_EXPIRY_DAYS * 24 * 60 * 60 * 1000);
+
+  const ip = req.ip || req.headers?.['x-forwarded-for'] || null;
+  const userAgent = req.headers?.['user-agent'] || null;
+
+  await query(
+    `INSERT INTO refresh_tokens (user_id, token_hash, expires_at, ip_address, user_agent)
+     VALUES ($1, $2, $3, $4, $5)`,
+    [user.id, tokenHash, expiresAt, ip, userAgent]
+  );
+
+  return rawToken;
+};
+
+// Validate and consume refresh token (rotation: old token is revoked)
+const validateRefreshToken = async (rawToken) => {
+  const tokenHash = crypto.createHash('sha256').update(rawToken).digest('hex');
+
+  const result = await query(
+    `SELECT rt.*, u.id as uid, u.email, u.name, u.role, u.workspace_id, u.is_active
+     FROM refresh_tokens rt
+     JOIN users u ON u.id = rt.user_id
+     WHERE rt.token_hash = $1 AND rt.revoked_at IS NULL AND rt.expires_at > NOW()
+     LIMIT 1`,
+    [tokenHash]
+  );
+
+  if (result.rows.length === 0) {
+    return null;
+  }
+
+  const row = result.rows[0];
+
+  if (!row.is_active) {
+    // User deactivated — revoke all their tokens
+    await query('UPDATE refresh_tokens SET revoked_at = NOW() WHERE user_id = $1 AND revoked_at IS NULL', [row.user_id]);
+    return null;
+  }
+
+  // Revoke this token (rotation)
+  await query('UPDATE refresh_tokens SET revoked_at = NOW() WHERE id = $1', [row.id]);
+
+  return {
+    id: row.uid,
+    email: row.email,
+    name: row.name,
+    role: row.role,
+    workspace_id: row.workspace_id,
+  };
+};
+
+// Revoke refresh token(s)
+const revokeRefreshToken = async (rawToken) => {
+  const tokenHash = crypto.createHash('sha256').update(rawToken).digest('hex');
+  await query('UPDATE refresh_tokens SET revoked_at = NOW() WHERE token_hash = $1', [tokenHash]);
+};
+
+const revokeAllUserRefreshTokens = async (userId) => {
+  await query('UPDATE refresh_tokens SET revoked_at = NOW() WHERE user_id = $1 AND revoked_at IS NULL', [userId]);
+};
+
+// Password validation policy
+const validatePassword = (password) => {
+  if (!password || typeof password !== 'string') {
+    return { valid: false, error: 'Password is required' };
+  }
+  if (password.length < 8) {
+    return { valid: false, error: 'Password must be at least 8 characters' };
+  }
+  if (!/[a-z]/.test(password)) {
+    return { valid: false, error: 'Password must contain at least one lowercase letter' };
+  }
+  if (!/[A-Z]/.test(password)) {
+    return { valid: false, error: 'Password must contain at least one uppercase letter' };
+  }
+  if (!/[0-9]/.test(password)) {
+    return { valid: false, error: 'Password must contain at least one number' };
+  }
+  return { valid: true };
+};
+
+// Update last login info
+const updateLastLogin = async (userId, req = {}) => {
+  const ip = req.ip || req.headers?.['x-forwarded-for'] || null;
+  await query(
+    'UPDATE users SET last_login_at = NOW(), last_login_ip = $1 WHERE id = $2',
+    [ip, userId]
   );
 };
 
@@ -208,6 +309,13 @@ module.exports = {
   authenticate,
   requireRole,
   generateToken,
+  generateAccessToken,
+  generateRefreshToken,
+  validateRefreshToken,
+  revokeRefreshToken,
+  revokeAllUserRefreshTokens,
+  validatePassword,
+  updateLastLogin,
   resolveEffectiveWorkspace,
   getEffectiveWorkspaceId,
 };
