@@ -21,7 +21,7 @@ const CHANNEL_CONFIG = {
 const ACTIVE_CHANNELS = new Set(['telegram', 'whatsapp'])
 
 function Dashboard() {
-    const { getToken } = useAuth()
+    const { getToken, user } = useAuth()
     const navigate = useNavigate()
     const [stats, setStats] = useState(null)
     const [bots, setBots] = useState([])
@@ -390,16 +390,20 @@ function Dashboard() {
                     </div>
                     <div className="card-body">
                         <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-3)' }}>
-                            <Link to="/bots" className="btn btn-secondary" style={{ justifyContent: 'flex-start' }}>
-                                <Bot size={18} />
-                                <span>Manage AI Bots</span>
-                                <ArrowRight size={14} style={{ marginLeft: 'auto' }} />
-                            </Link>
-                            <Link to="/knowledge-base" className="btn btn-secondary" style={{ justifyContent: 'flex-start' }}>
-                                <Database size={18} />
-                                <span>Update Knowledge Base</span>
-                                <ArrowRight size={14} style={{ marginLeft: 'auto' }} />
-                            </Link>
+                            {user?.role !== 'agent' && (
+                                <>
+                                    <Link to="/bots" className="btn btn-secondary" style={{ justifyContent: 'flex-start' }}>
+                                        <Bot size={18} />
+                                        <span>Manage AI Bots</span>
+                                        <ArrowRight size={14} style={{ marginLeft: 'auto' }} />
+                                    </Link>
+                                    <Link to="/knowledge-base" className="btn btn-secondary" style={{ justifyContent: 'flex-start' }}>
+                                        <Database size={18} />
+                                        <span>Update Knowledge Base</span>
+                                        <ArrowRight size={14} style={{ marginLeft: 'auto' }} />
+                                    </Link>
+                                </>
+                            )}
                             <Link to="/inbox" className="btn btn-primary" style={{ justifyContent: 'flex-start' }}>
                                 <Inbox size={18} />
                                 <span>Go to Inbox</span>
@@ -410,8 +414,8 @@ function Dashboard() {
                 </div>
             </div>
 
-            {/* Getting Started - Show if no bots */}
-            {bots.length === 0 && !loading && (
+            {/* Getting Started - Show if no bots and user is admin */}
+            {bots.length === 0 && !loading && user?.role !== 'agent' && (
                 <div className="card mt-6">
                     <div className="card-header">
                         <h2 className="card-title">Get Started</h2>
