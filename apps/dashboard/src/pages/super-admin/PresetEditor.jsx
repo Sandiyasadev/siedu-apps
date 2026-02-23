@@ -28,6 +28,7 @@ function PresetEditor() {
     const [expandedSubs, setExpandedSubs] = useState(new Set())
     const [importLoading, setImportLoading] = useState(false)
     const [importPreview, setImportPreview] = useState(null)
+    const [deleteConfirmName, setDeleteConfirmName] = useState('')
     const [modal, setModal] = useState(null)
     const [modalForm, setModalForm] = useState({})
 
@@ -239,6 +240,26 @@ function PresetEditor() {
         finally { setSaving(false) }
     }
 
+    // Delete bundle
+    const handleDeleteBundle = async () => {
+        if (!bundle || deleteConfirmName !== bundle.name) return
+        setSaving(true)
+        try {
+            const res = await fetch(`${API_BASE}/v1/admin/preset-bundles/${bundle.id}`, {
+                method: 'DELETE', headers: headers()
+            })
+            const data = await res.json()
+            if (!res.ok) throw new Error(data.error || 'Hapus gagal')
+            setNotice({ type: 'success', message: `Bundle "${bundle.name}" berhasil dihapus (${data.deleted?.items || 0} items, ${data.deleted?.subcategories || 0} intents, ${data.deleted?.categories || 0} categories)` })
+            setModal(null)
+            setDeleteConfirmName('')
+            setSelectedBundleId(null)
+            setDetail(null)
+            await fetchBundles()
+        } catch (err) { setNotice({ type: 'error', message: err.message }) }
+        finally { setSaving(false) }
+    }
+
     // ==================== Status Badge ====================
     const statusBadge = (status) => {
         if (status === 'published') return 'badge badge-success'
@@ -360,6 +381,10 @@ function PresetEditor() {
                                             {bundle.status !== 'draft' && (
                                                 <button className="btn btn-ghost btn-sm" onClick={() => handleStatusChange('draft')} disabled={saving}>Draft</button>
                                             )}
+                                            <button className="btn btn-ghost btn-sm" onClick={() => { setDeleteConfirmName(''); setModal('delete-bundle') }} disabled={saving}
+                                                title="Hapus Bundle" style={{ color: 'var(--error-500)' }}>
+                                                <Trash2 size={12} />
+                                            </button>
                                         </div>
                                     </div>
                                     <div className="text-xs text-muted">
@@ -520,6 +545,7 @@ function PresetEditor() {
                                 {modal === 'add-item' && 'Tambah Template Item'}
                                 {modal === 'edit-item' && 'Edit Template Item'}
                                 {modal === 'import-preview' && 'Import Bundle Preview'}
+                                {modal === 'delete-bundle' && 'Hapus Bundle'}
                             </h2>
                             <button className="btn btn-ghost btn-sm" onClick={() => setModal(null)}><X size={16} /></button>
                         </div>
@@ -640,12 +666,47 @@ function PresetEditor() {
                                 </div>
                             )}
 
+                            {/* Delete bundle confirmation */}
+                            {modal === 'delete-bundle' && bundle && (
+                                <div className="card-body">
+                                    <div style={{ padding: 'var(--space-4)', borderRadius: 'var(--radius-md)', background: 'var(--error-50)', border: '1px solid var(--error-200)', marginBottom: 'var(--space-4)' }}>
+                                        <div style={{ display: 'flex', alignItems: 'flex-start', gap: 'var(--space-2)' }}>
+                                            <AlertTriangle size={18} style={{ color: 'var(--error-600)', flexShrink: 0, marginTop: 2 }} />
+                                            <div>
+                                                <div style={{ fontWeight: 600, color: 'var(--error-700)', marginBottom: 'var(--space-1)' }}>Tindakan ini tidak bisa dibatalkan!</div>
+                                                <p className="text-sm" style={{ color: 'var(--error-700)', margin: 0 }}>
+                                                    Menghapus bundle ini akan menghapus <strong>seluruh</strong> categories, intents, dan template items di dalamnya secara permanen.
+                                                </p>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <div style={{ padding: 'var(--space-3)', borderRadius: 'var(--radius-md)', background: 'var(--gray-50)', border: '1px solid var(--gray-200)', marginBottom: 'var(--space-4)' }}>
+                                        <div style={{ fontWeight: 600 }}>{bundle.name}</div>
+                                        <div className="text-xs text-muted">Key: <code>{bundle.key}</code> · {categories.length} categories · {subcategories.length} intents · {items.length} items</div>
+                                    </div>
+                                    <div className="form-group">
+                                        <label className="form-label">Ketik <strong style={{ color: 'var(--error-600)' }}>{bundle.name}</strong> untuk mengkonfirmasi:</label>
+                                        <input className="form-input" value={deleteConfirmName}
+                                            onChange={e => setDeleteConfirmName(e.target.value)}
+                                            placeholder={bundle.name}
+                                            style={{ borderColor: deleteConfirmName && deleteConfirmName !== bundle.name ? 'var(--error-300)' : undefined }} />
+                                    </div>
+                                </div>
+                            )}
+
                             <div className="card-footer" style={{ display: 'flex', justifyContent: 'flex-end', gap: 'var(--space-3)' }}>
-                                <button type="button" className="btn btn-secondary" onClick={() => { setModal(null); setImportPreview(null) }}>Batal</button>
+                                <button type="button" className="btn btn-secondary" onClick={() => { setModal(null); setImportPreview(null); setDeleteConfirmName('') }}>Batal</button>
                                 {modal === 'import-preview' ? (
                                     <button type="button" className="btn btn-primary" onClick={handleImportConfirm} disabled={importLoading}>
                                         {importLoading ? <RefreshCw size={14} className="spinner" /> : <Upload size={14} />}
                                         Import Bundle
+                                    </button>
+                                ) : modal === 'delete-bundle' ? (
+                                    <button type="button" className="btn btn-primary" onClick={handleDeleteBundle}
+                                        disabled={saving || deleteConfirmName !== bundle?.name}
+                                        style={{ background: deleteConfirmName === bundle?.name ? 'var(--error-600)' : undefined, borderColor: deleteConfirmName === bundle?.name ? 'var(--error-600)' : undefined }}>
+                                        {saving ? <RefreshCw size={14} className="spinner" /> : <Trash2 size={14} />}
+                                        Hapus Permanen
                                     </button>
                                 ) : (
                                     <button type="submit" className="btn btn-primary" disabled={saving}>

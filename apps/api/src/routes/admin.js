@@ -336,6 +336,42 @@ router.patch('/preset-bundles/:id', asyncHandler(async (req, res) => {
     res.json({ bundle: result.rows[0] });
 }));
 
+router.delete('/preset-bundles/:id', asyncHandler(async (req, res) => {
+    const bundleResult = await query('SELECT * FROM preset_bundles WHERE id = $1', [req.params.id]);
+    if (bundleResult.rows.length === 0) return res.status(404).json({ error: 'Preset bundle not found' });
+    const bundle = bundleResult.rows[0];
+
+    // Check if any workspace is assigned to this bundle
+    const assignedRes = await query(
+        `SELECT a.workspace_id, w.name AS workspace_name
+         FROM workspace_preset_assignments a
+         LEFT JOIN workspaces w ON w.id = a.workspace_id
+         WHERE a.bundle_id = $1`,
+        [bundle.id]
+    );
+    if (assignedRes.rows.length > 0) {
+        return res.status(409).json({
+            error: 'Bundle masih di-assign ke workspace. Batalkan assignment terlebih dahulu.',
+            assigned_workspaces: assignedRes.rows.map(r => ({ id: r.workspace_id, name: r.workspace_name }))
+        });
+    }
+
+    // Cascade delete in transaction
+    const deleted = await transaction(async (client) => {
+        const itemsDel = await client.query('DELETE FROM preset_items WHERE bundle_id = $1', [bundle.id]);
+        const subsDel = await client.query('DELETE FROM preset_subcategories WHERE bundle_id = $1', [bundle.id]);
+        const catsDel = await client.query('DELETE FROM preset_categories WHERE bundle_id = $1', [bundle.id]);
+        await client.query('DELETE FROM preset_bundles WHERE id = $1', [bundle.id]);
+        return {
+            items: itemsDel.rowCount || 0,
+            subcategories: subsDel.rowCount || 0,
+            categories: catsDel.rowCount || 0,
+        };
+    });
+
+    res.json({ success: true, deleted_bundle: bundle.name, deleted });
+}));
+
 // ============================================
 // PRESET CATEGORIES
 // ============================================
