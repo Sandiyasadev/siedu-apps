@@ -3,7 +3,7 @@ const multer = require('multer');
 const { v4: uuidv4 } = require('uuid');
 const { query } = require('../utils/db');
 const { uploadFile, getPresignedUploadUrl, deleteFile } = require('../utils/storage');
-const { authenticate, getEffectiveWorkspaceId } = require('../middleware/auth');
+const { authenticate, requireRole, getEffectiveWorkspaceId } = require('../middleware/auth');
 const asyncHandler = require('../middleware/asyncHandler');
 const { uploadLimiter } = require('../middleware/rateLimiter');
 
@@ -34,7 +34,7 @@ const upload = multer({
 router.use(authenticate);
 
 // GET /v1/kb/sources - List KB sources for a bot
-router.get('/sources', asyncHandler(async (req, res) => {
+router.get('/sources', requireRole('admin'), asyncHandler(async (req, res) => {
     const { bot_id } = req.query;
 
     if (!bot_id) {
@@ -64,7 +64,7 @@ router.get('/sources', asyncHandler(async (req, res) => {
 }));
 
 // POST /v1/kb/upload - Upload file to KB
-router.post('/upload', uploadLimiter, upload.single('file'), asyncHandler(async (req, res) => {
+router.post('/upload', requireRole('admin'), uploadLimiter, upload.single('file'), asyncHandler(async (req, res) => {
     const { bot_id, kb_type, topic, language } = req.body;
 
     if (!bot_id) {
@@ -134,7 +134,7 @@ router.post('/upload', uploadLimiter, upload.single('file'), asyncHandler(async 
 }));
 
 // GET /v1/kb/upload/presigned - Get presigned upload URL
-router.get('/upload/presigned', asyncHandler(async (req, res) => {
+router.get('/upload/presigned', requireRole('admin'), asyncHandler(async (req, res) => {
     const { bot_id, filename, content_type } = req.query;
 
     if (!bot_id || !filename) {
@@ -164,7 +164,7 @@ router.get('/upload/presigned', asyncHandler(async (req, res) => {
 }));
 
 // DELETE /v1/kb/sources/:id - Delete KB source
-router.delete('/sources/:id', asyncHandler(async (req, res) => {
+router.delete('/sources/:id', requireRole('admin'), asyncHandler(async (req, res) => {
     // Get source and verify ownership
     const sourceResult = await query(
         `SELECT ks.id, ks.object_key, ks.filename, b.workspace_id

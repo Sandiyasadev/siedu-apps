@@ -32,7 +32,7 @@ const invalidateTemplateCaches = async (botId) => {
 // ============================================
 // GET /v1/templates - List templates for a bot
 // ============================================
-router.get('/', asyncHandler(async (req, res) => {
+router.get('/', requireRole('admin'), asyncHandler(async (req, res) => {
     const { bot_id, category } = req.query;
     const sub_category = normalizeOptionalSubCategory(req.query.sub_category);
     const includeInactive = parseBool(req.query.include_inactive) === true;
@@ -87,7 +87,7 @@ router.get('/', asyncHandler(async (req, res) => {
 // ============================================
 // GET /v1/templates/:id - Get single template
 // ============================================
-router.get('/:id', asyncHandler(async (req, res) => {
+router.get('/:id', requireRole('admin'), asyncHandler(async (req, res) => {
     const result = await query(`
         SELECT t.*, b.name as bot_name
         FROM templates t

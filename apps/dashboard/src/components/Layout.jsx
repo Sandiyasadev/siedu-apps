@@ -91,28 +91,30 @@ function Layout() {
                         </NavLink>
                     </div>
 
-                    {/* Configuration */}
-                    <div className="sidebar-section">
-                        <div className="sidebar-section-title">Configuration</div>
+                    {/* Configuration - admin only */}
+                    {user?.role !== 'agent' && (
+                        <div className="sidebar-section">
+                            <div className="sidebar-section-title">Configuration</div>
 
-                        <NavLink
-                            to={botsPath}
-                            state={workspaceNavState}
-                            className={({ isActive }) => `sidebar-link ${isActive ? 'active' : ''}`}
-                        >
-                            <Bot size={18} />
-                            <span>AI Bots</span>
-                        </NavLink>
+                            <NavLink
+                                to={botsPath}
+                                state={workspaceNavState}
+                                className={({ isActive }) => `sidebar-link ${isActive ? 'active' : ''}`}
+                            >
+                                <Bot size={18} />
+                                <span>AI Bots</span>
+                            </NavLink>
 
-                        <NavLink
-                            to={knowledgeBasePath}
-                            state={workspaceNavState}
-                            className={({ isActive }) => `sidebar-link ${isActive ? 'active' : ''}`}
-                        >
-                            <Database size={18} />
-                            <span>Knowledge Base</span>
-                        </NavLink>
-                    </div>
+                            <NavLink
+                                to={knowledgeBasePath}
+                                state={workspaceNavState}
+                                className={({ isActive }) => `sidebar-link ${isActive ? 'active' : ''}`}
+                            >
+                                <Database size={18} />
+                                <span>Knowledge Base</span>
+                            </NavLink>
+                        </div>
+                    )}
 
                     {user?.role === 'super_admin' && (
                         <div className="sidebar-section">
@@ -241,22 +243,26 @@ function Layout() {
                     </span>
                     <span>Inbox</span>
                 </NavLink>
-                <NavLink
-                    to={botsPath}
-                    state={workspaceNavState}
-                    className={({ isActive }) => `mobile-bottom-link ${isActive ? 'active' : ''}`}
-                >
-                    <Bot size={20} />
-                    <span>Bots</span>
-                </NavLink>
-                <NavLink
-                    to={knowledgeBasePath}
-                    state={workspaceNavState}
-                    className={({ isActive }) => `mobile-bottom-link ${isActive ? 'active' : ''}`}
-                >
-                    <Settings size={20} />
-                    <span>Config</span>
-                </NavLink>
+                {user?.role !== 'agent' && (
+                    <>
+                        <NavLink
+                            to={botsPath}
+                            state={workspaceNavState}
+                            className={({ isActive }) => `mobile-bottom-link ${isActive ? 'active' : ''}`}
+                        >
+                            <Bot size={20} />
+                            <span>Bots</span>
+                        </NavLink>
+                        <NavLink
+                            to={knowledgeBasePath}
+                            state={workspaceNavState}
+                            className={({ isActive }) => `mobile-bottom-link ${isActive ? 'active' : ''}`}
+                        >
+                            <Settings size={20} />
+                            <span>Config</span>
+                        </NavLink>
+                    </>
+                )}
             </nav>
         </div>
     )

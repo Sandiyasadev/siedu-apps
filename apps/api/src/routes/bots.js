@@ -12,7 +12,7 @@ const router = express.Router();
 router.use(authenticate);
 
 // GET /v1/bots - List all bots
-router.get('/', asyncHandler(async (req, res) => {
+router.get('/', requireRole('admin'), asyncHandler(async (req, res) => {
     const result = await query(
         `SELECT id, name, system_prompt, rag_top_k, rag_min_score, 
             handoff_enabled, llm_provider, llm_model, n8n_config,
@@ -27,7 +27,7 @@ router.get('/', asyncHandler(async (req, res) => {
 }));
 
 // GET /v1/bots/:id - Get single bot
-router.get('/:id', asyncHandler(async (req, res) => {
+router.get('/:id', requireRole('admin'), asyncHandler(async (req, res) => {
     const result = await query(
         `SELECT id, name, system_prompt, rag_top_k, rag_min_score,
             handoff_enabled, handoff_min_score, llm_provider, llm_model,
@@ -240,7 +240,7 @@ async function registerTelegramWebhook(channel, botToken) {
 }
 
 // GET /v1/bots/:id/channels/types - Get available channel types
-router.get('/:id/channels/types', asyncHandler(async (req, res) => {
+router.get('/:id/channels/types', requireRole('admin'), asyncHandler(async (req, res) => {
     const types = Object.entries(CHANNEL_TYPES).map(([key, value]) => ({
         type: key,
         label: value.label,
@@ -326,7 +326,7 @@ router.post('/:id/channels', requireRole('admin'), asyncHandler(async (req, res)
 }));
 
 // GET /v1/bots/:id/channels - List channels for bot
-router.get('/:id/channels', asyncHandler(async (req, res) => {
+router.get('/:id/channels', requireRole('admin'), asyncHandler(async (req, res) => {
     // Verify bot belongs to user's workspace
     const botCheck = await query(
         'SELECT id FROM bots WHERE id = $1 AND workspace_id = $2',
@@ -354,7 +354,7 @@ router.get('/:id/channels', asyncHandler(async (req, res) => {
 }));
 
 // GET /v1/bots/:id/channels/:channelId - Get single channel
-router.get('/:id/channels/:channelId', asyncHandler(async (req, res) => {
+router.get('/:id/channels/:channelId', requireRole('admin'), asyncHandler(async (req, res) => {
     const botCheck = await query(
         'SELECT id FROM bots WHERE id = $1 AND workspace_id = $2',
         [req.params.id, getEffectiveWorkspaceId(req)]

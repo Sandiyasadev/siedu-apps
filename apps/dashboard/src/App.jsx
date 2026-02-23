@@ -78,6 +78,28 @@ function SuperAdminRoute({ children }) {
     return children
 }
 
+function AdminRoute({ children }) {
+    const { user, loading } = useAuth()
+
+    if (loading) {
+        return (
+            <div className="login-page">
+                <div className="spinner"></div>
+            </div>
+        )
+    }
+
+    if (!user) {
+        return <Navigate to="/login" replace />
+    }
+
+    if (user.role === 'agent') {
+        return <Navigate to="/inbox" replace />
+    }
+
+    return children
+}
+
 function SuperAdminWorkspaceApp() {
     const { workspaceId } = useParams()
 
@@ -193,8 +215,8 @@ function App() {
                         </ProtectedRoute>
                     }>
                         <Route index element={<HomeIndexRoute />} />
-                        <Route path="bots" element={<Bots />} />
-                        <Route path="bots/:botId" element={<BotDetail />}>
+                        <Route path="bots" element={<AdminRoute><Bots /></AdminRoute>} />
+                        <Route path="bots/:botId" element={<AdminRoute><BotDetail /></AdminRoute>}>
                             <Route index element={<ChannelList />} />
                             <Route path="channels" element={<ChannelList />} />
                             <Route path="channels/new" element={<ChannelCreate />} />
@@ -203,7 +225,7 @@ function App() {
                             <Route path="templates" element={<BotTemplates />} />
                             <Route path="settings" element={<BotSettings />} />
                         </Route>
-                        <Route path="knowledge-base" element={<KnowledgeBase />} />
+                        <Route path="knowledge-base" element={<AdminRoute><KnowledgeBase /></AdminRoute>} />
                         <Route path="inbox" element={<Inbox />} />
                     </Route>
                 </Routes>
