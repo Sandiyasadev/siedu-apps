@@ -25,10 +25,41 @@ Internal API menggunakan: `x-internal-key: <INTERNAL_API_KEY>` atau `Authorizati
 }
 ```
 
-**Response:** `{ token, user }`
+*Dilindungi oleh Login Rate Limiter (Max 5 attempts / 15 menit per IP+Email kombinasi).*
+
+**Response:** `{ accessToken, refreshToken, user }`
+
+### Refresh Token
+`POST /auth/refresh`
+
+Menukar `refreshToken` lama dengan pasangan token baru (Token Rotation).
+
+**Body:**
+```json
+{
+  "refreshToken": "your-long-refresh-token"
+}
+```
+
+**Response:** `{ accessToken, refreshToken }`
+
+### Logout
+`POST /auth/logout` *(Auth required)*
+
+Menghapus/me-revoke session.
+
+**Body:**
+```json
+{
+  "refreshToken": "optional-token-to-revoke",
+  "all": false // Set true untuk revoke semua session device milik user ini
+}
+```
+
+**Response:** `{ success: true }`
 
 ### Get Current User
-`GET /auth/me` *(Auth required)*
+`GET /auth/me` *(Auth required via accessToken)*
 
 **Response:** `{ user }`
 
@@ -252,7 +283,7 @@ Digunakan oleh n8n untuk mengirim balasan balik ke user.
 ### Get Bot Config
 `GET /internal/bot-config/:botId`
 
-**Response:** `{ bot_id, name, system_prompt, rag_top_k, rag_min_score, llm_provider, llm_model, ... }`
+**Response:** `{ bot_id, name, system_prompt, rag_top_k, rag_min_score, llm_provider, llm_model, embed_provider: 'aws_bedrock', embed_model: 'amazon.titan-embed-text-v2:0', ... }`
 
 ### Log Analytics Event
 `POST /internal/log-event`

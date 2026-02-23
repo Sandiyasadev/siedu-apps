@@ -56,7 +56,19 @@ Kami memisahkan environment menjadi dua mode operasi untuk menjaga keamanan data
 
 ---
 
-## 3. Struktur Monorepo
+## 3. Sistem Autentikasi (Dual-Token Mode)
+
+API menggunakan sistem Dual-Token untuk keamanan yang lebih baik dibanding single long-lived JWT:
+
+1.  **Access Token (JWT):** Umur pendek (default 1 jam). Disertakan di header `Authorization: Bearer <token>` untuk setiap request. Disimpan di memory atau `localStorage`.
+2.  **Refresh Token:** Opaque string (hash). Umur panjang (default 7 hari). Disimpan di backend DB beserta info IP dan User-Agent.
+3.  **Token Rotation:** Saat Access Token expired, frontend (/dashboard `authFetch`) akan menembak endpoint `/v1/auth/refresh`. Refresh token lama dihanguskan (revoked), dan pair Access + Refresh Token baru diterbitkan.
+
+*(Login dilindungi rate limiter ketat: max 5 attempts / 15 menit per kombinasi IP dan Email).*
+
+---
+
+## 4. Struktur Monorepo
 
 ```
 siedu/

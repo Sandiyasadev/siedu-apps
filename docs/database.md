@@ -28,22 +28,33 @@ Menyimpan riwayat chat.
 | `created_at` | TIMESTAMPTZ | Waktu pesan dibuat. |
 | `raw` | JSONB | Metadata raw dari provider (Telegram/WA). |
 
-## 3. Migrasi
+## 3. Auth & Sessions
+Tabel `users` memiliki kolom:
+- `last_login_at` (TIMESTAMPTZ): Melacak waktu terakhir user login.
+- `last_login_ip` (INET): Melacak IP terakhir.
 
-Untuk menjalankan perubahan struktur database:
+Autentikasi menggunakan Dual-Token system. Tabel **`refresh_tokens`** menyimpan data token:
+- `token_hash` (TEXT): Hash dari token untuk rotasi.
+- `expires_at` (TIMESTAMPTZ): Waktu kedaluwarsa (default 7 hari).
+- `revoked_at` (TIMESTAMPTZ): Jika berisi tanggal, token sudah hangus.
+
+## 4. Migrasi
+
+Semua script migrasi telah *dikonsolidasi*. Untuk menjalankan struktur database dari awal atau menerapkan perubahan:
 
 **Testing (Lokal/Docker):**
 ```bash
-npm run db:migrate
-# Atau manual: psql -h localhost -U postgres -d siedu -f packages/database/v1_simplified_handoff.sql
+# Menjalankan script init
+psql -h localhost -U postgres -d siedu -f packages/database/00_init.sql
+# Atau via npm script jika tersedia: npm run db:migrate
 ```
 
 **Production (Supabase):**
-Jalankan file SQL di `packages/database/` melalui Supabase SQL Editor atau CLI.
+Jalankan file SQL `packages/database/00_init.sql` melalui Supabase SQL Editor atau CLI.
 
 ---
 
 ## Catatan Penting
 
-- **Vector Store:** Menggunakan ekstensi `pgvector`. Tabel `embeddings` menyimpan vektor dari Knowledge Base.
+- **Vector Store:** Menggunakan ekstensi `pgvector`. Tabel `n8n_vectors` (n8n API) dan `kb_embeddings` (Backend API) menyimpan vektor konten. Menggunakan dimensi **1024** (`vector(1024)`) disesuaikan untuk Amazon Titan Embed Text v2.
 - **Backup:** Production menggunakan fitur backup otomatis Supabase. Testing menggunakan volume Docker (hilang jika volume dihapus).
