@@ -21,6 +21,11 @@ import SuperAdminPresets from './pages/super-admin/Presets'
 import SuperAdminLogs from './pages/super-admin/Logs'
 import SuperAdminRouteLayout from './pages/super-admin/SuperAdminRouteLayout'
 import SuperAdminShell from './pages/super-admin/SuperAdminShell'
+import SADashboard from './pages/super-admin/Dashboard'
+import SAUsers from './pages/super-admin/Users'
+import SAWorkspaces from './pages/super-admin/Workspaces'
+import SABots from './pages/super-admin/SABots'
+import SAAuditLogs from './pages/super-admin/AuditLogs'
 
 // Auth Context
 export const AuthContext = createContext(null)
@@ -90,7 +95,7 @@ function HomeIndexRoute() {
     const { user } = useAuth()
 
     if (user?.role === 'super_admin') {
-        return <Navigate to="/sa/overview" replace />
+        return <Navigate to="/sa/dashboard" replace />
     }
 
     return <Dashboard />
@@ -148,8 +153,16 @@ function App() {
                             <SuperAdminShell />
                         </SuperAdminRoute>
                     }>
+                        {/* New MVP pages — no context needed */}
+                        <Route index element={<Navigate to="dashboard" replace />} />
+                        <Route path="dashboard" element={<SADashboard />} />
+                        <Route path="users" element={<SAUsers />} />
+                        <Route path="workspaces" element={<SAWorkspaces />} />
+                        <Route path="bots" element={<SABots />} />
+                        <Route path="audit-logs" element={<SAAuditLogs />} />
+
+                        {/* Existing preset pages — wrapped in context */}
                         <Route element={<SuperAdminRouteLayout />}>
-                            <Route index element={<Navigate to="overview" replace />} />
                             <Route path="overview" element={<SuperAdminOverview />} />
                             <Route path="assignments" element={<SuperAdminAssignments />} />
                             <Route path="presets" element={<SuperAdminPresets />} />

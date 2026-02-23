@@ -1376,4 +1376,464 @@ router.get('/preset-apply-logs', asyncHandler(async (req, res) => {
     res.json({ logs: result.rows, limit });
 }));
 
+// ============================================
+// DASHBOARD STATS
+// ============================================
+router.get('/dashboard/stats', asyncHandler(async (req, res) => {
+    const [
+        wsRes, usersRes, botsRes, convRes, msgRes, kbRes, taxRes, tplRes, handoffRes
+    ] = await Promise.all([
+        query('SELECT COUNT(*)::int AS total FROM workspaces'),
+        query(`
+            SELECT
+                COUNT(*)::int AS total,
+                COUNT(*) FILTER (WHERE is_active = true)::int AS active,
+                COUNT(*) FILTER (WHERE is_active = false)::int AS inactive
+            FROM users
+        `),
+        query(`
+            SELECT
+                COUNT(*)::int AS total,
+                jsonb_object_agg(COALESCE(llm_provider, 'unknown'), cnt) AS by_provider
+            FROM (
+                SELECT llm_provider, COUNT(*)::int AS cnt FROM bots GROUP BY llm_provider
+            ) sub
+        `),
+        query(`
+            SELECT
+                COUNT(*)::int AS total,
+                COUNT(*) FILTER (WHERE last_message_at > NOW() - INTERVAL '24 hours')::int AS active
+            FROM conversations
+        `),
+        query(`
+            SELECT
+                COUNT(*) FILTER (WHERE created_at::date = CURRENT_DATE)::int AS today,
+                COUNT(*) FILTER (WHERE created_at > NOW() - INTERVAL '7 days')::int AS week
+            FROM messages
+        `),
+        query(`
+            SELECT
+                COUNT(*)::int AS sources,
+                COALESCE(SUM(chunk_count), 0)::int AS chunks,
+                COUNT(*) FILTER (WHERE status = 'error')::int AS errors
+            FROM kb_sources
+        `),
+        query(`
+            SELECT
+                COUNT(*)::int AS total,
+                COUNT(*) FILTER (WHERE status = 'published')::int AS published
+            FROM taxonomy_presets
+        `),
+        query(`
+            SELECT
+                COUNT(*)::int AS total,
+                COUNT(*) FILTER (WHERE status = 'published')::int AS published
+            FROM template_presets
+        `),
+        query(`
+            SELECT COUNT(*)::int AS pending
+            FROM handoff_queue
+            WHERE status IN ('waiting', 'assigned')
+        `),
+    ]);
+
+    res.json({
+        workspaces: wsRes.rows[0],
+        users: usersRes.rows[0],
+        bots: {
+            total: botsRes.rows[0]?.total || 0,
+            by_provider: botsRes.rows[0]?.by_provider || {}
+        },
+        conversations: {
+            ...convRes.rows[0],
+            handoff_pending: handoffRes.rows[0]?.pending || 0
+        },
+        messages: msgRes.rows[0],
+        kb: kbRes.rows[0],
+        presets: {
+            taxonomy: taxRes.rows[0],
+            template: tplRes.rows[0]
+        }
+    });
+}));
+
+// ============================================
+// USER MANAGEMENT
+// ============================================
+router.get('/users', asyncHandler(async (req, res) => {
+    const workspaceId = normalizeOptionalText(req.query.workspace_id);
+    const role = normalizeOptionalText(req.query.role);
+    const isActive = req.query.is_active !== undefined ? parseBool(req.query.is_active, true) : null;
+    const search = normalizeOptionalText(req.query.search);
+    const limit = Math.min(Math.max(parseInt(req.query.limit || '50', 10) || 50, 1), 200);
+    const offset = Math.max(parseInt(req.query.offset || '0', 10) || 0, 0);
+
+    const conditions = [];
+    const params = [];
+    let idx = 1;
+
+    if (workspaceId) {
+        conditions.push(`u.workspace_id = $${idx++}`);
+        params.push(workspaceId);
+    }
+    if (role) {
+        conditions.push(`u.role = $${idx++}`);
+        params.push(role);
+    }
+    if (isActive !== null) {
+        conditions.push(`u.is_active = $${idx++}`);
+        params.push(isActive);
+    }
+    if (search) {
+        conditions.push(`(u.name ILIKE $${idx} OR u.email ILIKE $${idx})`);
+        params.push(`%${search}%`);
+        idx++;
+    }
+
+    const where = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
+
+    const [dataRes, countRes] = await Promise.all([
+        query(
+            `
+            SELECT u.id, u.email, u.name, u.role, u.is_active, u.workspace_id,
+                   u.created_at, u.updated_at,
+                   w.name AS workspace_name
+            FROM users u
+            LEFT JOIN workspaces w ON w.id = u.workspace_id
+            ${where}
+            ORDER BY u.created_at DESC
+            LIMIT $${idx++} OFFSET $${idx++}
+            `,
+            [...params, limit, offset]
+        ),
+        query(`SELECT COUNT(*)::int AS total FROM users u ${where}`, params)
+    ]);
+
+    res.json({ users: dataRes.rows, total: countRes.rows[0]?.total || 0 });
+}));
+
+router.post('/users', asyncHandler(async (req, res) => {
+    const bcrypt = require('bcryptjs');
+    const email = normalizeOptionalText(req.body.email)?.toLowerCase();
+    const name = normalizeOptionalText(req.body.name);
+    const password = req.body.password;
+    const role = ['admin', 'super_admin', 'agent'].includes(req.body.role) ? req.body.role : 'admin';
+    const workspaceId = normalizeOptionalText(req.body.workspace_id);
+
+    if (!email || !name || !password) {
+        return res.status(400).json({ error: 'email, name, and password are required' });
+    }
+    if (password.length < 6) {
+        return res.status(400).json({ error: 'Password must be at least 6 characters' });
+    }
+
+    // Check duplicate email
+    const existing = await query('SELECT id FROM users WHERE email = $1', [email]);
+    if (existing.rows.length > 0) {
+        return res.status(409).json({ error: 'Email already registered' });
+    }
+
+    // Validate workspace exists
+    if (workspaceId) {
+        const ws = await assertWorkspaceExists(workspaceId);
+        if (!ws) return res.status(404).json({ error: 'Workspace not found' });
+    }
+
+    const salt = await bcrypt.genSalt(12);
+    const password_hash = await bcrypt.hash(password, salt);
+
+    const result = await query(
+        `
+        INSERT INTO users (email, password_hash, name, role, workspace_id, is_active)
+        VALUES ($1, $2, $3, $4, $5, true)
+        RETURNING id, email, name, role, workspace_id, is_active, created_at, updated_at
+        `,
+        [email, password_hash, name, role, workspaceId || '00000000-0000-0000-0000-000000000001']
+    );
+
+    res.status(201).json({ user: result.rows[0] });
+}));
+
+router.patch('/users/:id', asyncHandler(async (req, res) => {
+    const check = await query('SELECT id FROM users WHERE id = $1', [req.params.id]);
+    if (check.rows.length === 0) {
+        return res.status(404).json({ error: 'User not found' });
+    }
+
+    const updates = [];
+    const params = [];
+    let idx = 1;
+
+    if (req.body.name !== undefined) {
+        const name = normalizeOptionalText(req.body.name);
+        if (!name) return res.status(400).json({ error: 'name cannot be empty' });
+        updates.push(`name = $${idx++}`);
+        params.push(name);
+    }
+    if (req.body.role !== undefined) {
+        if (!['admin', 'super_admin', 'agent'].includes(req.body.role)) {
+            return res.status(400).json({ error: 'Invalid role. Must be admin, super_admin, or agent' });
+        }
+        updates.push(`role = $${idx++}`);
+        params.push(req.body.role);
+    }
+    if (req.body.is_active !== undefined) {
+        const active = parseBool(req.body.is_active, undefined);
+        if (active === undefined) return res.status(400).json({ error: 'is_active must be boolean' });
+        updates.push(`is_active = $${idx++}`);
+        params.push(active);
+    }
+    if (req.body.workspace_id !== undefined) {
+        const wsId = normalizeOptionalText(req.body.workspace_id);
+        if (wsId) {
+            const ws = await assertWorkspaceExists(wsId);
+            if (!ws) return res.status(404).json({ error: 'Workspace not found' });
+        }
+        updates.push(`workspace_id = $${idx++}`);
+        params.push(wsId || '00000000-0000-0000-0000-000000000001');
+    }
+
+    if (updates.length === 0) {
+        return res.status(400).json({ error: 'No fields to update' });
+    }
+
+    updates.push('updated_at = NOW()');
+    params.push(req.params.id);
+
+    const result = await query(
+        `UPDATE users SET ${updates.join(', ')} WHERE id = $${idx} RETURNING id, email, name, role, workspace_id, is_active, created_at, updated_at`,
+        params
+    );
+
+    res.json({ user: result.rows[0] });
+}));
+
+router.post('/users/:id/reset-password', asyncHandler(async (req, res) => {
+    const bcrypt = require('bcryptjs');
+    const check = await query('SELECT id, email FROM users WHERE id = $1', [req.params.id]);
+    if (check.rows.length === 0) {
+        return res.status(404).json({ error: 'User not found' });
+    }
+
+    const newPassword = req.body.new_password;
+    if (!newPassword || newPassword.length < 6) {
+        return res.status(400).json({ error: 'new_password must be at least 6 characters' });
+    }
+
+    const salt = await bcrypt.genSalt(12);
+    const password_hash = await bcrypt.hash(newPassword, salt);
+
+    await query('UPDATE users SET password_hash = $1, updated_at = NOW() WHERE id = $2', [password_hash, req.params.id]);
+
+    res.json({ success: true, message: `Password reset for ${check.rows[0].email}` });
+}));
+
+// ============================================
+// WORKSPACE CREATE / UPDATE / DETAIL
+// ============================================
+router.post('/workspaces', asyncHandler(async (req, res) => {
+    const name = normalizeOptionalText(req.body.name);
+    const slug = normalizeKey(req.body.slug);
+
+    if (!name) {
+        return res.status(400).json({ error: 'name is required' });
+    }
+
+    if (slug) {
+        const existing = await query('SELECT id FROM workspaces WHERE slug = $1', [slug]);
+        if (existing.rows.length > 0) {
+            return res.status(409).json({ error: 'Slug already exists' });
+        }
+    }
+
+    const result = await query(
+        `INSERT INTO workspaces (name, slug) VALUES ($1, $2) RETURNING *`,
+        [name, slug || null]
+    );
+
+    res.status(201).json({ workspace: result.rows[0] });
+}));
+
+router.patch('/workspaces/:id', asyncHandler(async (req, res) => {
+    const workspace = await assertWorkspaceExists(req.params.id);
+    if (!workspace) return res.status(404).json({ error: 'Workspace not found' });
+
+    const updates = [];
+    const params = [];
+    let idx = 1;
+
+    if (req.body.name !== undefined) {
+        const name = normalizeOptionalText(req.body.name);
+        if (!name) return res.status(400).json({ error: 'name cannot be empty' });
+        updates.push(`name = $${idx++}`);
+        params.push(name);
+    }
+    if (req.body.slug !== undefined) {
+        const slug = normalizeKey(req.body.slug);
+        if (slug) {
+            const existing = await query('SELECT id FROM workspaces WHERE slug = $1 AND id != $2', [slug, req.params.id]);
+            if (existing.rows.length > 0) {
+                return res.status(409).json({ error: 'Slug already exists' });
+            }
+        }
+        updates.push(`slug = $${idx++}`);
+        params.push(slug || null);
+    }
+
+    if (updates.length === 0) {
+        return res.status(400).json({ error: 'No fields to update' });
+    }
+
+    updates.push('updated_at = NOW()');
+    params.push(req.params.id);
+
+    const result = await query(
+        `UPDATE workspaces SET ${updates.join(', ')} WHERE id = $${idx} RETURNING *`,
+        params
+    );
+
+    res.json({ workspace: result.rows[0] });
+}));
+
+router.get('/workspaces/:id/detail', asyncHandler(async (req, res) => {
+    const workspace = await assertWorkspaceExists(req.params.id);
+    if (!workspace) return res.status(404).json({ error: 'Workspace not found' });
+
+    const [usersRes, botsRes, assignRes] = await Promise.all([
+        query(
+            `SELECT id, email, name, role, is_active, created_at FROM users WHERE workspace_id = $1 ORDER BY created_at DESC`,
+            [req.params.id]
+        ),
+        query(
+            `SELECT id, name, llm_provider, llm_model, handoff_enabled, created_at FROM bots WHERE workspace_id = $1 ORDER BY created_at DESC`,
+            [req.params.id]
+        ),
+        query(
+            `
+            SELECT a.*, tp.name AS taxonomy_preset_name, tmp.name AS template_preset_name
+            FROM workspace_preset_assignments a
+            LEFT JOIN taxonomy_presets tp ON tp.id = a.taxonomy_preset_id
+            LEFT JOIN template_presets tmp ON tmp.id = a.template_preset_id
+            WHERE a.workspace_id = $1
+            `,
+            [req.params.id]
+        )
+    ]);
+
+    res.json({
+        workspace,
+        users: usersRes.rows,
+        bots: botsRes.rows,
+        assignment: assignRes.rows[0] || null
+    });
+}));
+
+// ============================================
+// BOT OVERVIEW (cross-workspace)
+// ============================================
+router.get('/bots', asyncHandler(async (req, res) => {
+    const workspaceId = normalizeOptionalText(req.query.workspace_id);
+    const search = normalizeOptionalText(req.query.search);
+    const limit = Math.min(Math.max(parseInt(req.query.limit || '50', 10) || 50, 1), 200);
+    const offset = Math.max(parseInt(req.query.offset || '0', 10) || 0, 0);
+
+    const conditions = [];
+    const params = [];
+    let idx = 1;
+
+    if (workspaceId) {
+        conditions.push(`b.workspace_id = $${idx++}`);
+        params.push(workspaceId);
+    }
+    if (search) {
+        conditions.push(`b.name ILIKE $${idx++}`);
+        params.push(`%${search}%`);
+    }
+
+    const where = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
+
+    const [dataRes, countRes] = await Promise.all([
+        query(
+            `
+            SELECT
+                b.id, b.name, b.workspace_id, b.llm_provider, b.llm_model,
+                b.handoff_enabled, b.created_at, b.updated_at,
+                w.name AS workspace_name,
+                COALESCE(ch.channel_count, 0)::int AS channel_count,
+                COALESCE(cv.conversation_count, 0)::int AS conversation_count,
+                COALESCE(t.template_count, 0)::int AS template_count,
+                COALESCE(kb.kb_source_count, 0)::int AS kb_source_count
+            FROM bots b
+            LEFT JOIN workspaces w ON w.id = b.workspace_id
+            LEFT JOIN (
+                SELECT bot_id, COUNT(*)::int AS channel_count FROM bot_channels GROUP BY bot_id
+            ) ch ON ch.bot_id = b.id
+            LEFT JOIN (
+                SELECT bot_id, COUNT(*)::int AS conversation_count FROM conversations GROUP BY bot_id
+            ) cv ON cv.bot_id = b.id
+            LEFT JOIN (
+                SELECT bot_id, COUNT(*)::int AS template_count FROM templates GROUP BY bot_id
+            ) t ON t.bot_id = b.id
+            LEFT JOIN (
+                SELECT bot_id, COUNT(*)::int AS kb_source_count FROM kb_sources GROUP BY bot_id
+            ) kb ON kb.bot_id = b.id
+            ${where}
+            ORDER BY b.created_at DESC
+            LIMIT $${idx++} OFFSET $${idx++}
+            `,
+            [...params, limit, offset]
+        ),
+        query(`SELECT COUNT(*)::int AS total FROM bots b ${where}`, params)
+    ]);
+
+    res.json({ bots: dataRes.rows, total: countRes.rows[0]?.total || 0 });
+}));
+
+// ============================================
+// AUDIT LOGS
+// ============================================
+router.get('/audit-logs', asyncHandler(async (req, res) => {
+    const workspaceId = normalizeOptionalText(req.query.workspace_id);
+    const actor = normalizeOptionalText(req.query.actor);
+    const action = normalizeOptionalText(req.query.action);
+    const limit = Math.min(Math.max(parseInt(req.query.limit || '50', 10) || 50, 1), 200);
+    const offset = Math.max(parseInt(req.query.offset || '0', 10) || 0, 0);
+
+    const conditions = [];
+    const params = [];
+    let idx = 1;
+
+    if (workspaceId) {
+        conditions.push(`a.workspace_id = $${idx++}`);
+        params.push(workspaceId);
+    }
+    if (actor) {
+        conditions.push(`a.actor ILIKE $${idx++}`);
+        params.push(`%${actor}%`);
+    }
+    if (action) {
+        conditions.push(`a.action = $${idx++}`);
+        params.push(action);
+    }
+
+    const where = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
+
+    const [dataRes, countRes] = await Promise.all([
+        query(
+            `
+            SELECT a.*, w.name AS workspace_name
+            FROM audit_log a
+            LEFT JOIN workspaces w ON w.id = a.workspace_id
+            ${where}
+            ORDER BY a.created_at DESC
+            LIMIT $${idx++} OFFSET $${idx++}
+            `,
+            [...params, limit, offset]
+        ),
+        query(`SELECT COUNT(*)::int AS total FROM audit_log a ${where}`, params)
+    ]);
+
+    res.json({ logs: dataRes.rows, total: countRes.rows[0]?.total || 0 });
+}));
+
 module.exports = router;
