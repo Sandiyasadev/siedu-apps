@@ -28,9 +28,8 @@ const navGroups = [
     {
         label: 'Presets',
         items: [
-            { to: '/sa/overview', label: 'Overview', icon: LayoutDashboard },
-            { to: '/sa/presets', label: 'Preset Library', icon: Boxes },
-            { to: '/sa/assignments', label: 'Assignments', icon: ListTree },
+            { to: '/sa/preset-editor', label: 'Preset Editor', icon: Boxes },
+            { to: '/sa/preset-deploy', label: 'Deploy', icon: ListTree },
         ]
     },
     {

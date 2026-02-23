@@ -15,9 +15,8 @@ import BotKnowledge from './pages/BotKnowledge'
 import KnowledgeBase from './pages/KnowledgeBase'
 import Inbox from './pages/Inbox'
 import Layout from './components/Layout'
-import SuperAdminOverview from './pages/super-admin/Overview'
-import SuperAdminAssignments from './pages/super-admin/Assignments'
-import SuperAdminPresets from './pages/super-admin/Presets'
+import PresetEditor from './pages/super-admin/PresetEditor'
+import PresetDeploy from './pages/super-admin/PresetDeploy'
 import SuperAdminLogs from './pages/super-admin/Logs'
 import SuperAdminRouteLayout from './pages/super-admin/SuperAdminRouteLayout'
 import SuperAdminShell from './pages/super-admin/SuperAdminShell'
@@ -161,11 +160,12 @@ function App() {
                         <Route path="bots" element={<SABots />} />
                         <Route path="audit-logs" element={<SAAuditLogs />} />
 
-                        {/* Existing preset pages — wrapped in context */}
+                        {/* Preset pages — self-contained, no context needed */}
+                        <Route path="preset-editor" element={<PresetEditor />} />
+                        <Route path="preset-deploy" element={<PresetDeploy />} />
+
+                        {/* Legacy pages — wrapped in context (kept for logs) */}
                         <Route element={<SuperAdminRouteLayout />}>
-                            <Route path="overview" element={<SuperAdminOverview />} />
-                            <Route path="assignments" element={<SuperAdminAssignments />} />
-                            <Route path="presets" element={<SuperAdminPresets />} />
                             <Route path="logs" element={<SuperAdminLogs />} />
                         </Route>
                     </Route>

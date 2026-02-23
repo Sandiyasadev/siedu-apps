@@ -2,8 +2,8 @@ const express = require('express');
 const { query, transaction } = require('../utils/db');
 const asyncHandler = require('../middleware/asyncHandler');
 const { authenticate, requireRole } = require('../middleware/auth');
-const { bootstrapDefaultPresetsFromLocalSources } = require('../services/adminPresetService');
-const { applyPresetsToWorkspace, previewPresetsToWorkspace } = require('../services/presetApplyService');
+const { bootstrapBundleFromDefaults } = require('../services/adminPresetService');
+const { applyBundleToWorkspace, previewBundleToWorkspace } = require('../services/presetApplyService');
 
 const router = express.Router();
 
@@ -91,17 +91,13 @@ const assertWorkspaceExists = async (workspaceId) => {
     return result.rows[0] || null;
 };
 
-const assertPresetAccessible = async ({ table, id, workspaceId }) => {
-    if (!id) return null;
+const assertBundleAccessible = async (bundleId, workspaceId) => {
+    if (!bundleId) return null;
     const result = await query(
-        `
-        SELECT *
-        FROM ${table}
-        WHERE id = $1
-          AND (workspace_id IS NULL OR workspace_id = $2)
-        LIMIT 1
-        `,
-        [id, workspaceId]
+        `SELECT * FROM preset_bundles
+         WHERE id = $1 AND (workspace_id IS NULL OR workspace_id = $2)
+         LIMIT 1`,
+        [bundleId, workspaceId]
     );
     return result.rows[0] || null;
 };
@@ -159,20 +155,10 @@ router.get('/workspaces/:id/preset-assignment', asyncHandler(async (req, res) =>
     if (!workspace) return res.status(404).json({ error: 'Workspace not found' });
 
     const result = await query(
-        `
-        SELECT
-            a.*,
-            tp.key AS taxonomy_preset_key,
-            tp.name AS taxonomy_preset_name,
-            tp.version AS taxonomy_preset_version,
-            tmp.key AS template_preset_key,
-            tmp.name AS template_preset_name,
-            tmp.version AS template_preset_version
-        FROM workspace_preset_assignments a
-        LEFT JOIN taxonomy_presets tp ON tp.id = a.taxonomy_preset_id
-        LEFT JOIN template_presets tmp ON tmp.id = a.template_preset_id
-        WHERE a.workspace_id = $1
-        `,
+        `SELECT a.*, pb.key AS bundle_key, pb.name AS bundle_name, pb.version AS bundle_version
+         FROM workspace_preset_assignments a
+         LEFT JOIN preset_bundles pb ON pb.id = a.bundle_id
+         WHERE a.workspace_id = $1`,
         [req.params.id]
     );
 
@@ -183,142 +169,73 @@ router.put('/workspaces/:id/preset-assignment', asyncHandler(async (req, res) =>
     const workspace = await assertWorkspaceExists(req.params.id);
     if (!workspace) return res.status(404).json({ error: 'Workspace not found' });
 
-    const taxonomyPresetId = normalizeOptionalText(req.body.taxonomy_preset_id) || null;
-    const templatePresetId = normalizeOptionalText(req.body.template_preset_id) || null;
+    const bundleId = normalizeOptionalText(req.body.bundle_id) || null;
 
-    if (taxonomyPresetId) {
-        const preset = await assertPresetAccessible({ table: 'taxonomy_presets', id: taxonomyPresetId, workspaceId: workspace.id });
-        if (!preset) return res.status(404).json({ error: 'taxonomy_preset_id not found or inaccessible for this workspace' });
-    }
-    if (templatePresetId) {
-        const preset = await assertPresetAccessible({ table: 'template_presets', id: templatePresetId, workspaceId: workspace.id });
-        if (!preset) return res.status(404).json({ error: 'template_preset_id not found or inaccessible for this workspace' });
+    if (bundleId) {
+        const bundle = await assertBundleAccessible(bundleId, workspace.id);
+        if (!bundle) return res.status(404).json({ error: 'bundle_id not found or inaccessible for this workspace' });
     }
 
     const result = await query(
-        `
-        INSERT INTO workspace_preset_assignments (
-            workspace_id, taxonomy_preset_id, template_preset_id, assigned_by, assigned_at, updated_at
-        )
-        VALUES ($1,$2,$3,$4,NOW(),NOW())
-        ON CONFLICT (workspace_id)
-        DO UPDATE SET
-            taxonomy_preset_id = EXCLUDED.taxonomy_preset_id,
-            template_preset_id = EXCLUDED.template_preset_id,
-            assigned_by = EXCLUDED.assigned_by,
-            assigned_at = NOW(),
-            updated_at = NOW()
-        RETURNING *
-        `,
-        [workspace.id, taxonomyPresetId, templatePresetId, req.user.id]
+        `INSERT INTO workspace_preset_assignments (workspace_id, bundle_id, assigned_by, assigned_at, updated_at)
+         VALUES ($1,$2,$3,NOW(),NOW())
+         ON CONFLICT (workspace_id)
+         DO UPDATE SET bundle_id = EXCLUDED.bundle_id, assigned_by = EXCLUDED.assigned_by,
+                       assigned_at = NOW(), updated_at = NOW()
+         RETURNING *`,
+        [workspace.id, bundleId, req.user.id]
     );
 
     res.json({ workspace, assignment: result.rows[0] });
 }));
 
-router.post('/workspaces/:id/apply-presets', asyncHandler(async (req, res) => {
+router.post('/workspaces/:id/apply-bundle', asyncHandler(async (req, res) => {
     const workspace = await assertWorkspaceExists(req.params.id);
     if (!workspace) return res.status(404).json({ error: 'Workspace not found' });
 
-    const scope = ['taxonomy', 'templates', 'both'].includes(req.body.scope) ? req.body.scope : 'both';
     const mode = ['skip_existing', 'reactivate_existing'].includes(req.body.mode) ? req.body.mode : 'skip_existing';
+    let bundleId = normalizeOptionalText(req.body.bundle_id) || null;
 
-    let taxonomyPresetId = normalizeOptionalText(req.body.taxonomy_preset_id) || null;
-    let templatePresetId = normalizeOptionalText(req.body.template_preset_id) || null;
-
-    const assignmentResult = await query(
-        `
-        SELECT taxonomy_preset_id, template_preset_id
-        FROM workspace_preset_assignments
-        WHERE workspace_id = $1
-        `,
-        [workspace.id]
-    );
-    const assignment = assignmentResult.rows[0] || null;
-
-    if (!taxonomyPresetId) taxonomyPresetId = assignment?.taxonomy_preset_id || null;
-    if (!templatePresetId) templatePresetId = assignment?.template_preset_id || null;
-
-    if ((scope === 'taxonomy' || scope === 'both') && !taxonomyPresetId) {
-        return res.status(400).json({ error: 'No taxonomy preset assigned/provided for this workspace' });
+    if (!bundleId) {
+        const assignRes = await query('SELECT bundle_id FROM workspace_preset_assignments WHERE workspace_id = $1', [workspace.id]);
+        bundleId = assignRes.rows[0]?.bundle_id || null;
     }
-    if ((scope === 'templates' || scope === 'both') && !templatePresetId) {
-        return res.status(400).json({ error: 'No template preset assigned/provided for this workspace' });
-    }
+    if (!bundleId) return res.status(400).json({ error: 'No preset bundle assigned/provided for this workspace' });
 
-    if (taxonomyPresetId) {
-        const preset = await assertPresetAccessible({ table: 'taxonomy_presets', id: taxonomyPresetId, workspaceId: workspace.id });
-        if (!preset) return res.status(404).json({ error: 'taxonomy_preset_id not found or inaccessible for this workspace' });
-    }
-    if (templatePresetId) {
-        const preset = await assertPresetAccessible({ table: 'template_presets', id: templatePresetId, workspaceId: workspace.id });
-        if (!preset) return res.status(404).json({ error: 'template_preset_id not found or inaccessible for this workspace' });
-    }
+    const bundle = await assertBundleAccessible(bundleId, workspace.id);
+    if (!bundle) return res.status(404).json({ error: 'bundle_id not found or inaccessible for this workspace' });
 
-    const summary = await applyPresetsToWorkspace(workspace.id, {
-        scope,
-        mode,
-        taxonomyPresetId,
-        templatePresetId,
-        createdBy: req.user.id,
-    });
+    const summary = await applyBundleToWorkspace(workspace.id, bundleId, { mode, createdBy: req.user.id });
 
-    res.json({ success: true, workspace, assignment, summary });
+    res.json({ success: true, workspace, summary });
 }));
 
-router.post('/workspaces/:id/preview-apply-presets', asyncHandler(async (req, res) => {
+router.post('/workspaces/:id/preview-apply-bundle', asyncHandler(async (req, res) => {
     const workspace = await assertWorkspaceExists(req.params.id);
     if (!workspace) return res.status(404).json({ error: 'Workspace not found' });
 
-    const scope = ['taxonomy', 'templates', 'both'].includes(req.body.scope) ? req.body.scope : 'both';
     const mode = ['skip_existing', 'reactivate_existing'].includes(req.body.mode) ? req.body.mode : 'skip_existing';
+    let bundleId = normalizeOptionalText(req.body.bundle_id) || null;
 
-    let taxonomyPresetId = normalizeOptionalText(req.body.taxonomy_preset_id) || null;
-    let templatePresetId = normalizeOptionalText(req.body.template_preset_id) || null;
-
-    const assignmentResult = await query(
-        `
-        SELECT taxonomy_preset_id, template_preset_id
-        FROM workspace_preset_assignments
-        WHERE workspace_id = $1
-        `,
-        [workspace.id]
-    );
-    const assignment = assignmentResult.rows[0] || null;
-
-    if (!taxonomyPresetId) taxonomyPresetId = assignment?.taxonomy_preset_id || null;
-    if (!templatePresetId) templatePresetId = assignment?.template_preset_id || null;
-
-    if ((scope === 'taxonomy' || scope === 'both') && !taxonomyPresetId) {
-        return res.status(400).json({ error: 'No taxonomy preset assigned/provided for this workspace' });
+    if (!bundleId) {
+        const assignRes = await query('SELECT bundle_id FROM workspace_preset_assignments WHERE workspace_id = $1', [workspace.id]);
+        bundleId = assignRes.rows[0]?.bundle_id || null;
     }
-    if ((scope === 'templates' || scope === 'both') && !templatePresetId) {
-        return res.status(400).json({ error: 'No template preset assigned/provided for this workspace' });
-    }
+    if (!bundleId) return res.status(400).json({ error: 'No preset bundle assigned/provided for this workspace' });
 
-    if (taxonomyPresetId) {
-        const preset = await assertPresetAccessible({ table: 'taxonomy_presets', id: taxonomyPresetId, workspaceId: workspace.id });
-        if (!preset) return res.status(404).json({ error: 'taxonomy_preset_id not found or inaccessible for this workspace' });
-    }
-    if (templatePresetId) {
-        const preset = await assertPresetAccessible({ table: 'template_presets', id: templatePresetId, workspaceId: workspace.id });
-        if (!preset) return res.status(404).json({ error: 'template_preset_id not found or inaccessible for this workspace' });
-    }
+    const bundle = await assertBundleAccessible(bundleId, workspace.id);
+    if (!bundle) return res.status(404).json({ error: 'bundle_id not found or inaccessible for this workspace' });
 
-    const summary = await previewPresetsToWorkspace(workspace.id, {
-        scope,
-        mode,
-        taxonomyPresetId,
-        templatePresetId,
-    });
+    const summary = await previewBundleToWorkspace(workspace.id, bundleId, { mode });
 
-    res.json({ success: true, workspace, assignment, summary });
+    res.json({ success: true, workspace, summary });
 }));
 
+
 // ============================================
-// TAXONOMY PRESETS
+// PRESET BUNDLES (unified)
 // ============================================
-router.get('/taxonomy-presets', asyncHandler(async (req, res) => {
+router.get('/preset-bundles', asyncHandler(async (req, res) => {
     const workspaceId = normalizeOptionalText(req.query.workspace_id);
     const includeGlobal = parseBool(req.query.include_global, true);
 
@@ -328,279 +245,177 @@ router.get('/taxonomy-presets', asyncHandler(async (req, res) => {
     }
 
     const result = await query(
-        `
-        SELECT
-            p.*,
-            COALESCE(c.category_count, 0)::int AS categories_count,
-            COALESCE(s.subcategory_count, 0)::int AS subcategories_count
-        FROM taxonomy_presets p
-        LEFT JOIN (
-            SELECT preset_id, COUNT(*) AS category_count
-            FROM taxonomy_preset_categories
-            GROUP BY preset_id
-        ) c ON c.preset_id = p.id
-        LEFT JOIN (
-            SELECT preset_id, COUNT(*) AS subcategory_count
-            FROM taxonomy_preset_subcategories
-            GROUP BY preset_id
-        ) s ON s.preset_id = p.id
-        WHERE (
-            $1::uuid IS NULL
-            OR p.workspace_id = $1
-            OR ($2::boolean = true AND p.workspace_id IS NULL)
-        )
-        ORDER BY p.workspace_id NULLS FIRST, p.key ASC, p.version DESC
-        `,
+        `SELECT p.*,
+            COALESCE(c.cnt, 0)::int AS categories_count,
+            COALESCE(s.cnt, 0)::int AS subcategories_count,
+            COALESCE(i.cnt, 0)::int AS items_count
+         FROM preset_bundles p
+         LEFT JOIN (SELECT bundle_id, COUNT(*) AS cnt FROM preset_categories GROUP BY bundle_id) c ON c.bundle_id = p.id
+         LEFT JOIN (SELECT bundle_id, COUNT(*) AS cnt FROM preset_subcategories GROUP BY bundle_id) s ON s.bundle_id = p.id
+         LEFT JOIN (SELECT bundle_id, COUNT(*) AS cnt FROM preset_items GROUP BY bundle_id) i ON i.bundle_id = p.id
+         WHERE ($1::uuid IS NULL OR p.workspace_id = $1 OR ($2::boolean = true AND p.workspace_id IS NULL))
+         ORDER BY p.workspace_id NULLS FIRST, p.key ASC, p.version DESC`,
         [workspaceId, includeGlobal]
     );
 
-    res.json({ presets: result.rows, filters: { workspace_id: workspaceId, include_global: includeGlobal } });
+    res.json({ bundles: result.rows, filters: { workspace_id: workspaceId, include_global: includeGlobal } });
 }));
 
-router.get('/taxonomy-presets/:id', asyncHandler(async (req, res) => {
-    const presetResult = await query('SELECT * FROM taxonomy_presets WHERE id = $1', [req.params.id]);
-    if (presetResult.rows.length === 0) {
-        return res.status(404).json({ error: 'Taxonomy preset not found' });
-    }
+router.get('/preset-bundles/:id', asyncHandler(async (req, res) => {
+    const bundleResult = await query('SELECT * FROM preset_bundles WHERE id = $1', [req.params.id]);
+    if (bundleResult.rows.length === 0) return res.status(404).json({ error: 'Preset bundle not found' });
 
-    const categoriesResult = await query(
-        `
-        SELECT *
-        FROM taxonomy_preset_categories
-        WHERE preset_id = $1
-        ORDER BY sort_order ASC, label ASC, key ASC
-        `,
-        [req.params.id]
-    );
-    const subcategoriesResult = await query(
-        `
-        SELECT *
-        FROM taxonomy_preset_subcategories
-        WHERE preset_id = $1
-        ORDER BY category_key ASC, sort_order ASC, label ASC, key ASC
-        `,
-        [req.params.id]
-    );
+    const [catRes, subRes, itemRes] = await Promise.all([
+        query('SELECT * FROM preset_categories WHERE bundle_id = $1 ORDER BY sort_order ASC, label ASC', [req.params.id]),
+        query('SELECT * FROM preset_subcategories WHERE bundle_id = $1 ORDER BY category_key ASC, sort_order ASC, label ASC', [req.params.id]),
+        query('SELECT * FROM preset_items WHERE bundle_id = $1 ORDER BY category ASC, sub_category ASC NULLS LAST, sort_order ASC, name ASC', [req.params.id]),
+    ]);
 
     res.json({
-        preset: presetResult.rows[0],
-        categories: categoriesResult.rows,
-        subcategories: subcategoriesResult.rows,
+        bundle: bundleResult.rows[0],
+        categories: catRes.rows,
+        subcategories: subRes.rows,
+        items: itemRes.rows,
     });
 }));
 
-router.post('/taxonomy-presets', asyncHandler(async (req, res) => {
+router.post('/preset-bundles', asyncHandler(async (req, res) => {
     const workspaceId = normalizeOptionalText(req.body.workspace_id);
     const key = normalizeOptionalText(req.body.key);
     const name = normalizeOptionalText(req.body.name);
     const description = normalizeOptionalText(req.body.description) || null;
     const status = ['draft', 'published', 'archived'].includes(req.body.status) ? req.body.status : 'draft';
     const version = Number.isInteger(req.body.version) ? req.body.version : parseInt(req.body.version || '1', 10);
-    const metadata = req.body.metadata && typeof req.body.metadata === 'object' && !Array.isArray(req.body.metadata)
-        ? req.body.metadata
-        : {};
+    const metadata = req.body.metadata && typeof req.body.metadata === 'object' && !Array.isArray(req.body.metadata) ? req.body.metadata : {};
 
-    if (!key || !name) {
-        return res.status(400).json({ error: 'key and name are required' });
-    }
-    if (!Number.isInteger(version) || version <= 0) {
-        return res.status(400).json({ error: 'version must be a positive integer' });
-    }
+    if (!key || !name) return res.status(400).json({ error: 'key and name are required' });
+    if (!Number.isInteger(version) || version <= 0) return res.status(400).json({ error: 'version must be a positive integer' });
     if (workspaceId) {
-        const workspace = await assertWorkspaceExists(workspaceId);
-        if (!workspace) return res.status(404).json({ error: 'Workspace not found' });
+        const ws = await assertWorkspaceExists(workspaceId);
+        if (!ws) return res.status(404).json({ error: 'Workspace not found' });
     }
 
     const result = await query(
-        `
-        INSERT INTO taxonomy_presets (
-            workspace_id, key, name, version, status, description, metadata, created_by, updated_by
-        )
-        VALUES ($1,$2,$3,$4,$5,$6,$7::jsonb,$8,$9)
-        RETURNING *
-        `,
+        `INSERT INTO preset_bundles (workspace_id, key, name, version, status, description, metadata, created_by, updated_by)
+         VALUES ($1,$2,$3,$4,$5,$6,$7::jsonb,$8,$9) RETURNING *`,
         [workspaceId, key, name, version, status, description, JSON.stringify(metadata), req.user.id, req.user.id]
     );
 
-    res.status(201).json({ preset: result.rows[0] });
+    res.status(201).json({ bundle: result.rows[0] });
 }));
 
-router.patch('/taxonomy-presets/:id', asyncHandler(async (req, res) => {
-    const existing = await query('SELECT * FROM taxonomy_presets WHERE id = $1', [req.params.id]);
-    if (existing.rows.length === 0) {
-        return res.status(404).json({ error: 'Taxonomy preset not found' });
-    }
+router.patch('/preset-bundles/:id', asyncHandler(async (req, res) => {
+    const existing = await query('SELECT * FROM preset_bundles WHERE id = $1', [req.params.id]);
+    if (existing.rows.length === 0) return res.status(404).json({ error: 'Preset bundle not found' });
 
-    const updates = [];
-    const params = [];
-    let idx = 1;
+    const updates = []; const params = []; let idx = 1;
 
     if (req.body.name !== undefined) {
         const name = normalizeOptionalText(req.body.name);
         if (!name) return res.status(400).json({ error: 'name cannot be empty' });
-        updates.push(`name = $${idx++}`);
-        params.push(name);
+        updates.push(`name = $${idx++}`); params.push(name);
     }
-    if (req.body.description !== undefined) {
-        updates.push(`description = $${idx++}`);
-        params.push(normalizeOptionalText(req.body.description));
-    }
+    if (req.body.description !== undefined) { updates.push(`description = $${idx++}`); params.push(normalizeOptionalText(req.body.description)); }
     if (req.body.status !== undefined) {
-        if (!['draft', 'published', 'archived'].includes(req.body.status)) {
-            return res.status(400).json({ error: 'Invalid status' });
-        }
-        updates.push(`status = $${idx++}`);
-        params.push(req.body.status);
+        if (!['draft', 'published', 'archived'].includes(req.body.status)) return res.status(400).json({ error: 'Invalid status' });
+        updates.push(`status = $${idx++}`); params.push(req.body.status);
     }
     if (req.body.metadata !== undefined) {
-        if (!req.body.metadata || typeof req.body.metadata !== 'object' || Array.isArray(req.body.metadata)) {
+        if (!req.body.metadata || typeof req.body.metadata !== 'object' || Array.isArray(req.body.metadata))
             return res.status(400).json({ error: 'metadata must be an object' });
-        }
-        updates.push(`metadata = $${idx++}::jsonb`);
-        params.push(JSON.stringify(req.body.metadata));
+        updates.push(`metadata = $${idx++}::jsonb`); params.push(JSON.stringify(req.body.metadata));
     }
 
-    if (updates.length === 0) {
-        return res.status(400).json({ error: 'No fields to update' });
-    }
+    if (updates.length === 0) return res.status(400).json({ error: 'No fields to update' });
 
-    updates.push(`updated_by = $${idx++}`);
-    params.push(req.user.id);
+    updates.push(`updated_by = $${idx++}`); params.push(req.user.id);
     updates.push('updated_at = NOW()');
     params.push(req.params.id);
 
-    const result = await query(
-        `UPDATE taxonomy_presets SET ${updates.join(', ')} WHERE id = $${idx} RETURNING *`,
-        params
-    );
-
-    res.json({ preset: result.rows[0] });
+    const result = await query(`UPDATE preset_bundles SET ${updates.join(', ')} WHERE id = $${idx} RETURNING *`, params);
+    res.json({ bundle: result.rows[0] });
 }));
 
 // ============================================
-// TAXONOMY PRESET CATEGORIES
+// PRESET CATEGORIES
 // ============================================
-router.post('/taxonomy-presets/:id/categories', asyncHandler(async (req, res) => {
-    const presetId = req.params.id;
-    const presetResult = await query('SELECT id FROM taxonomy_presets WHERE id = $1', [presetId]);
-    if (presetResult.rows.length === 0) {
-        return res.status(404).json({ error: 'Taxonomy preset not found' });
-    }
+router.post('/preset-bundles/:id/categories', asyncHandler(async (req, res) => {
+    const bundleId = req.params.id;
+    const bundleCheck = await query('SELECT id FROM preset_bundles WHERE id = $1', [bundleId]);
+    if (bundleCheck.rows.length === 0) return res.status(404).json({ error: 'Preset bundle not found' });
 
     const key = normalizeKey(req.body.key);
     const label = normalizeOptionalText(req.body.label);
-    if (!key || !label) {
-        return res.status(400).json({ error: 'key and label are required' });
-    }
+    if (!key || !label) return res.status(400).json({ error: 'key and label are required' });
 
     const active = parseBool(req.body.is_active, true);
-    const sortOrder = Number.isInteger(req.body.sort_order)
-        ? req.body.sort_order
-        : (parseInt(req.body.sort_order, 10) || 0);
+    const sortOrder = Number.isInteger(req.body.sort_order) ? req.body.sort_order : (parseInt(req.body.sort_order, 10) || 0);
 
     const result = await query(
-        `
-        INSERT INTO taxonomy_preset_categories (
-            preset_id, key, label, description, sort_order, is_active, metadata
-        )
-        VALUES ($1,$2,$3,$4,$5,$6,$7::jsonb)
-        RETURNING *
-        `,
-        [
-            presetId,
-            key,
-            label,
-            normalizeOptionalText(req.body.description) ?? null,
-            sortOrder,
-            active,
-            JSON.stringify(req.body.metadata && typeof req.body.metadata === 'object' && !Array.isArray(req.body.metadata) ? req.body.metadata : {}),
-        ]
+        `INSERT INTO preset_categories (bundle_id, key, label, description, sort_order, is_active, metadata)
+         VALUES ($1,$2,$3,$4,$5,$6,$7::jsonb) RETURNING *`,
+        [bundleId, key, label, normalizeOptionalText(req.body.description) ?? null, sortOrder, active,
+            JSON.stringify(req.body.metadata && typeof req.body.metadata === 'object' && !Array.isArray(req.body.metadata) ? req.body.metadata : {})]
     );
     res.status(201).json({ category: result.rows[0] });
 }));
 
-router.patch('/taxonomy-presets/categories/:id', asyncHandler(async (req, res) => {
-    const check = await query('SELECT * FROM taxonomy_preset_categories WHERE id = $1', [req.params.id]);
-    if (check.rows.length === 0) {
-        return res.status(404).json({ error: 'Taxonomy preset category not found' });
-    }
+router.patch('/preset-bundles/categories/:id', asyncHandler(async (req, res) => {
+    const check = await query('SELECT * FROM preset_categories WHERE id = $1', [req.params.id]);
+    if (check.rows.length === 0) return res.status(404).json({ error: 'Preset category not found' });
 
-    const updates = [];
-    const params = [];
-    let idx = 1;
+    const updates = []; const params = []; let idx = 1;
 
     if (req.body.label !== undefined) {
         const label = normalizeOptionalText(req.body.label);
         if (!label) return res.status(400).json({ error: 'label cannot be empty' });
-        updates.push(`label = $${idx++}`);
-        params.push(label);
+        updates.push(`label = $${idx++}`); params.push(label);
     }
-    if (req.body.description !== undefined) {
-        updates.push(`description = $${idx++}`);
-        params.push(normalizeOptionalText(req.body.description));
-    }
-    if (req.body.sort_order !== undefined) {
-        updates.push(`sort_order = $${idx++}`);
-        params.push(parseInt(req.body.sort_order, 10) || 0);
-    }
+    if (req.body.description !== undefined) { updates.push(`description = $${idx++}`); params.push(normalizeOptionalText(req.body.description)); }
+    if (req.body.sort_order !== undefined) { updates.push(`sort_order = $${idx++}`); params.push(parseInt(req.body.sort_order, 10) || 0); }
     if (req.body.is_active !== undefined) {
         const active = parseBool(req.body.is_active, undefined);
         if (active === undefined) return res.status(400).json({ error: 'is_active must be boolean' });
-        updates.push(`is_active = $${idx++}`);
-        params.push(active);
+        updates.push(`is_active = $${idx++}`); params.push(active);
     }
     if (req.body.metadata !== undefined) {
-        if (!req.body.metadata || typeof req.body.metadata !== 'object' || Array.isArray(req.body.metadata)) {
+        if (!req.body.metadata || typeof req.body.metadata !== 'object' || Array.isArray(req.body.metadata))
             return res.status(400).json({ error: 'metadata must be an object' });
-        }
-        updates.push(`metadata = $${idx++}::jsonb`);
-        params.push(JSON.stringify(req.body.metadata));
+        updates.push(`metadata = $${idx++}::jsonb`); params.push(JSON.stringify(req.body.metadata));
     }
 
-    if (updates.length === 0) {
-        return res.status(400).json({ error: 'No fields to update' });
-    }
+    if (updates.length === 0) return res.status(400).json({ error: 'No fields to update' });
     updates.push('updated_at = NOW()');
     params.push(req.params.id);
 
-    const result = await query(
-        `UPDATE taxonomy_preset_categories SET ${updates.join(', ')} WHERE id = $${idx} RETURNING *`,
-        params
-    );
+    const result = await query(`UPDATE preset_categories SET ${updates.join(', ')} WHERE id = $${idx} RETURNING *`, params);
     res.json({ category: result.rows[0] });
 }));
 
-router.delete('/taxonomy-presets/categories/:id', asyncHandler(async (req, res) => {
-    const check = await query('SELECT * FROM taxonomy_preset_categories WHERE id = $1', [req.params.id]);
-    if (check.rows.length === 0) {
-        return res.status(404).json({ error: 'Taxonomy preset category not found' });
-    }
+router.delete('/preset-bundles/categories/:id', asyncHandler(async (req, res) => {
+    const check = await query('SELECT * FROM preset_categories WHERE id = $1', [req.params.id]);
+    if (check.rows.length === 0) return res.status(404).json({ error: 'Preset category not found' });
     const category = check.rows[0];
 
     const subCount = await query(
-        'SELECT COUNT(*)::int AS count FROM taxonomy_preset_subcategories WHERE preset_id = $1 AND category_key = $2',
-        [category.preset_id, category.key]
+        'SELECT COUNT(*)::int AS count FROM preset_subcategories WHERE bundle_id = $1 AND category_key = $2',
+        [category.bundle_id, category.key]
     );
     if ((subCount.rows[0]?.count || 0) > 0) {
-        return res.status(409).json({
-            error: 'Category still has subcategories. Delete or move subcategories first.',
-            references: { subcategories: subCount.rows[0].count }
-        });
+        return res.status(409).json({ error: 'Category still has subcategories. Delete or move subcategories first.', references: { subcategories: subCount.rows[0].count } });
     }
 
-    await query('DELETE FROM taxonomy_preset_categories WHERE id = $1', [req.params.id]);
+    await query('DELETE FROM preset_categories WHERE id = $1', [req.params.id]);
     res.json({ success: true });
 }));
 
 // ============================================
-// TAXONOMY PRESET SUBCATEGORIES (INTENTS)
+// PRESET SUBCATEGORIES (INTENTS)
 // ============================================
-router.post('/taxonomy-presets/:id/subcategories', asyncHandler(async (req, res) => {
-    const presetId = req.params.id;
-    const presetResult = await query('SELECT id FROM taxonomy_presets WHERE id = $1', [presetId]);
-    if (presetResult.rows.length === 0) {
-        return res.status(404).json({ error: 'Taxonomy preset not found' });
-    }
+router.post('/preset-bundles/:id/subcategories', asyncHandler(async (req, res) => {
+    const bundleId = req.params.id;
+    const bundleCheck = await query('SELECT id FROM preset_bundles WHERE id = $1', [bundleId]);
+    if (bundleCheck.rows.length === 0) return res.status(404).json({ error: 'Preset bundle not found' });
 
     const categoryKey = normalizeKey(req.body.category_key);
     const key = normalizeKey(req.body.key);
@@ -609,357 +424,111 @@ router.post('/taxonomy-presets/:id/subcategories', asyncHandler(async (req, res)
     const greetingPolicy = req.body.greeting_policy || 'forbidden';
     const strategyPool = normalizeOptionalJsonArray(req.body.strategy_pool);
 
-    if (!categoryKey || !key || !label) {
-        return res.status(400).json({ error: 'category_key, key, and label are required' });
-    }
-    if (!isValidReplyMode(replyMode)) {
-        return res.status(400).json({ error: 'Invalid reply_mode' });
-    }
-    if (!isValidGreetingPolicy(greetingPolicy)) {
-        return res.status(400).json({ error: 'Invalid greeting_policy' });
-    }
-    if (req.body.strategy_pool !== undefined && strategyPool === undefined) {
-        return res.status(400).json({ error: 'strategy_pool must be an array when provided' });
-    }
+    if (!categoryKey || !key || !label) return res.status(400).json({ error: 'category_key, key, and label are required' });
+    if (!isValidReplyMode(replyMode)) return res.status(400).json({ error: 'Invalid reply_mode' });
+    if (!isValidGreetingPolicy(greetingPolicy)) return res.status(400).json({ error: 'Invalid greeting_policy' });
+    if (req.body.strategy_pool !== undefined && strategyPool === undefined) return res.status(400).json({ error: 'strategy_pool must be an array when provided' });
 
-    const categoryCheck = await query(
-        'SELECT id FROM taxonomy_preset_categories WHERE preset_id = $1 AND key = $2',
-        [presetId, categoryKey]
-    );
-    if (categoryCheck.rows.length === 0) {
-        return res.status(400).json({ error: 'category_key not found in this preset' });
-    }
+    const categoryCheck = await query('SELECT id FROM preset_categories WHERE bundle_id = $1 AND key = $2', [bundleId, categoryKey]);
+    if (categoryCheck.rows.length === 0) return res.status(400).json({ error: 'category_key not found in this bundle' });
 
     const active = parseBool(req.body.is_active, true);
-    const sortOrder = Number.isInteger(req.body.sort_order)
-        ? req.body.sort_order
-        : (parseInt(req.body.sort_order, 10) || 0);
+    const sortOrder = Number.isInteger(req.body.sort_order) ? req.body.sort_order : (parseInt(req.body.sort_order, 10) || 0);
     const defaultCount = parseInt(req.body.default_template_count, 10);
 
     const result = await query(
-        `
-        INSERT INTO taxonomy_preset_subcategories (
-            preset_id, category_key, key, label, description,
+        `INSERT INTO preset_subcategories (
+            bundle_id, category_key, key, label, description,
             reply_mode, greeting_policy, default_template_count,
             strategy_pool, sort_order, is_active, metadata
-        )
-        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9::jsonb,$10,$11,$12::jsonb)
-        RETURNING *
-        `,
-        [
-            presetId,
-            categoryKey,
-            key,
-            label,
-            normalizeOptionalText(req.body.description) ?? null,
-            replyMode,
-            greetingPolicy,
-            Number.isFinite(defaultCount) && defaultCount > 0 ? defaultCount : 3,
-            JSON.stringify(strategyPool ?? []),
-            sortOrder,
-            active,
-            JSON.stringify(req.body.metadata && typeof req.body.metadata === 'object' && !Array.isArray(req.body.metadata) ? req.body.metadata : {}),
-        ]
+        ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9::jsonb,$10,$11,$12::jsonb) RETURNING *`,
+        [bundleId, categoryKey, key, label, normalizeOptionalText(req.body.description) ?? null,
+            replyMode, greetingPolicy, Number.isFinite(defaultCount) && defaultCount > 0 ? defaultCount : 3,
+            JSON.stringify(strategyPool ?? []), sortOrder, active,
+            JSON.stringify(req.body.metadata && typeof req.body.metadata === 'object' && !Array.isArray(req.body.metadata) ? req.body.metadata : {})]
     );
     res.status(201).json({ subcategory: result.rows[0] });
 }));
 
-router.patch('/taxonomy-presets/subcategories/:id', asyncHandler(async (req, res) => {
-    const check = await query('SELECT * FROM taxonomy_preset_subcategories WHERE id = $1', [req.params.id]);
-    if (check.rows.length === 0) {
-        return res.status(404).json({ error: 'Taxonomy preset subcategory not found' });
-    }
+router.patch('/preset-bundles/subcategories/:id', asyncHandler(async (req, res) => {
+    const check = await query('SELECT * FROM preset_subcategories WHERE id = $1', [req.params.id]);
+    if (check.rows.length === 0) return res.status(404).json({ error: 'Preset subcategory not found' });
     const existing = check.rows[0];
 
-    const updates = [];
-    const params = [];
-    let idx = 1;
+    const updates = []; const params = []; let idx = 1;
 
     if (req.body.label !== undefined) {
         const label = normalizeOptionalText(req.body.label);
         if (!label) return res.status(400).json({ error: 'label cannot be empty' });
-        updates.push(`label = $${idx++}`);
-        params.push(label);
+        updates.push(`label = $${idx++}`); params.push(label);
     }
-    if (req.body.description !== undefined) {
-        updates.push(`description = $${idx++}`);
-        params.push(normalizeOptionalText(req.body.description));
-    }
-    if (req.body.sort_order !== undefined) {
-        updates.push(`sort_order = $${idx++}`);
-        params.push(parseInt(req.body.sort_order, 10) || 0);
-    }
+    if (req.body.description !== undefined) { updates.push(`description = $${idx++}`); params.push(normalizeOptionalText(req.body.description)); }
+    if (req.body.sort_order !== undefined) { updates.push(`sort_order = $${idx++}`); params.push(parseInt(req.body.sort_order, 10) || 0); }
     if (req.body.is_active !== undefined) {
         const active = parseBool(req.body.is_active, undefined);
         if (active === undefined) return res.status(400).json({ error: 'is_active must be boolean' });
-        updates.push(`is_active = $${idx++}`);
-        params.push(active);
+        updates.push(`is_active = $${idx++}`); params.push(active);
     }
     if (req.body.reply_mode !== undefined) {
         if (!isValidReplyMode(req.body.reply_mode)) return res.status(400).json({ error: 'Invalid reply_mode' });
-        updates.push(`reply_mode = $${idx++}`);
-        params.push(req.body.reply_mode);
+        updates.push(`reply_mode = $${idx++}`); params.push(req.body.reply_mode);
     }
     if (req.body.greeting_policy !== undefined) {
         if (!isValidGreetingPolicy(req.body.greeting_policy)) return res.status(400).json({ error: 'Invalid greeting_policy' });
-        updates.push(`greeting_policy = $${idx++}`);
-        params.push(req.body.greeting_policy);
+        updates.push(`greeting_policy = $${idx++}`); params.push(req.body.greeting_policy);
     }
     if (req.body.default_template_count !== undefined) {
         const count = parseInt(req.body.default_template_count, 10);
-        if (!Number.isFinite(count) || count <= 0) {
-            return res.status(400).json({ error: 'default_template_count must be a positive integer' });
-        }
-        updates.push(`default_template_count = $${idx++}`);
-        params.push(count);
+        if (!Number.isFinite(count) || count <= 0) return res.status(400).json({ error: 'default_template_count must be a positive integer' });
+        updates.push(`default_template_count = $${idx++}`); params.push(count);
     }
     if (req.body.strategy_pool !== undefined) {
-        const strategyPool = normalizeOptionalJsonArray(req.body.strategy_pool);
-        if (strategyPool === undefined) return res.status(400).json({ error: 'strategy_pool must be an array' });
-        updates.push(`strategy_pool = $${idx++}::jsonb`);
-        params.push(JSON.stringify(strategyPool));
+        const sp = normalizeOptionalJsonArray(req.body.strategy_pool);
+        if (sp === undefined) return res.status(400).json({ error: 'strategy_pool must be an array' });
+        updates.push(`strategy_pool = $${idx++}::jsonb`); params.push(JSON.stringify(sp));
     }
     if (req.body.category_key !== undefined) {
-        const categoryKey = normalizeKey(req.body.category_key);
-        if (!categoryKey) return res.status(400).json({ error: 'category_key cannot be empty' });
-        const categoryCheck = await query(
-            'SELECT id FROM taxonomy_preset_categories WHERE preset_id = $1 AND key = $2',
-            [existing.preset_id, categoryKey]
-        );
-        if (categoryCheck.rows.length === 0) {
-            return res.status(400).json({ error: 'category_key not found in this preset' });
-        }
-        updates.push(`category_key = $${idx++}`);
-        params.push(categoryKey);
+        const ck = normalizeKey(req.body.category_key);
+        if (!ck) return res.status(400).json({ error: 'category_key cannot be empty' });
+        const catCheck = await query('SELECT id FROM preset_categories WHERE bundle_id = $1 AND key = $2', [existing.bundle_id, ck]);
+        if (catCheck.rows.length === 0) return res.status(400).json({ error: 'category_key not found in this bundle' });
+        updates.push(`category_key = $${idx++}`); params.push(ck);
     }
     if (req.body.metadata !== undefined) {
-        if (!req.body.metadata || typeof req.body.metadata !== 'object' || Array.isArray(req.body.metadata)) {
+        if (!req.body.metadata || typeof req.body.metadata !== 'object' || Array.isArray(req.body.metadata))
             return res.status(400).json({ error: 'metadata must be an object' });
-        }
-        updates.push(`metadata = $${idx++}::jsonb`);
-        params.push(JSON.stringify(req.body.metadata));
+        updates.push(`metadata = $${idx++}::jsonb`); params.push(JSON.stringify(req.body.metadata));
     }
 
-    if (updates.length === 0) {
-        return res.status(400).json({ error: 'No fields to update' });
-    }
+    if (updates.length === 0) return res.status(400).json({ error: 'No fields to update' });
     updates.push('updated_at = NOW()');
     params.push(req.params.id);
 
-    const result = await query(
-        `UPDATE taxonomy_preset_subcategories SET ${updates.join(', ')} WHERE id = $${idx} RETURNING *`,
-        params
-    );
+    const result = await query(`UPDATE preset_subcategories SET ${updates.join(', ')} WHERE id = $${idx} RETURNING *`, params);
     res.json({ subcategory: result.rows[0] });
 }));
 
-router.delete('/taxonomy-presets/subcategories/:id', asyncHandler(async (req, res) => {
-    const check = await query('SELECT * FROM taxonomy_preset_subcategories WHERE id = $1', [req.params.id]);
-    if (check.rows.length === 0) {
-        return res.status(404).json({ error: 'Taxonomy preset subcategory not found' });
-    }
+router.delete('/preset-bundles/subcategories/:id', asyncHandler(async (req, res) => {
+    const check = await query('SELECT * FROM preset_subcategories WHERE id = $1', [req.params.id]);
+    if (check.rows.length === 0) return res.status(404).json({ error: 'Preset subcategory not found' });
     const sub = check.rows[0];
 
-    const refCount = await query(
-        `
-        SELECT COUNT(*)::int AS count
-        FROM template_preset_items i
-        JOIN template_presets p ON p.id = i.template_preset_id
-        WHERE p.taxonomy_preset_id = $1
-          AND i.sub_category = $2
-        `,
-        [sub.preset_id, sub.key]
-    );
+    const refCount = await query('SELECT COUNT(*)::int AS count FROM preset_items WHERE bundle_id = $1 AND sub_category = $2', [sub.bundle_id, sub.key]);
     if ((refCount.rows[0]?.count || 0) > 0) {
-        return res.status(409).json({
-            error: 'Subcategory still used by template preset items linked to this taxonomy preset.',
-            references: { template_preset_items: refCount.rows[0].count }
-        });
+        return res.status(409).json({ error: 'Subcategory still has template items. Delete or move items first.', references: { items: refCount.rows[0].count } });
     }
 
-    await query('DELETE FROM taxonomy_preset_subcategories WHERE id = $1', [req.params.id]);
+    await query('DELETE FROM preset_subcategories WHERE id = $1', [req.params.id]);
     res.json({ success: true });
 }));
 
 // ============================================
-// TEMPLATE PRESETS
+// PRESET ITEMS (templates)
 // ============================================
-router.get('/template-presets', asyncHandler(async (req, res) => {
-    const workspaceId = normalizeOptionalText(req.query.workspace_id);
-    const includeGlobal = parseBool(req.query.include_global, true);
-
-    if (workspaceId) {
-        const workspace = await assertWorkspaceExists(workspaceId);
-        if (!workspace) return res.status(404).json({ error: 'Workspace not found' });
-    }
-
-    const result = await query(
-        `
-        SELECT
-            p.*,
-            COALESCE(i.item_count, 0)::int AS items_count
-        FROM template_presets p
-        LEFT JOIN (
-            SELECT template_preset_id, COUNT(*) AS item_count
-            FROM template_preset_items
-            GROUP BY template_preset_id
-        ) i ON i.template_preset_id = p.id
-        WHERE (
-            $1::uuid IS NULL
-            OR p.workspace_id = $1
-            OR ($2::boolean = true AND p.workspace_id IS NULL)
-        )
-        ORDER BY p.workspace_id NULLS FIRST, p.key ASC, p.version DESC
-        `,
-        [workspaceId, includeGlobal]
-    );
-
-    res.json({ presets: result.rows, filters: { workspace_id: workspaceId, include_global: includeGlobal } });
-}));
-
-router.get('/template-presets/:id', asyncHandler(async (req, res) => {
-    const presetResult = await query('SELECT * FROM template_presets WHERE id = $1', [req.params.id]);
-    if (presetResult.rows.length === 0) {
-        return res.status(404).json({ error: 'Template preset not found' });
-    }
-
-    const itemsResult = await query(
-        `
-        SELECT *
-        FROM template_preset_items
-        WHERE template_preset_id = $1
-        ORDER BY category ASC, sub_category ASC NULLS LAST, sort_order ASC, name ASC
-        `,
-        [req.params.id]
-    );
-
-    res.json({ preset: presetResult.rows[0], items: itemsResult.rows });
-}));
-
-router.post('/template-presets', asyncHandler(async (req, res) => {
-    const workspaceId = normalizeOptionalText(req.body.workspace_id);
-    const taxonomyPresetId = normalizeOptionalText(req.body.taxonomy_preset_id) || null;
-    const key = normalizeOptionalText(req.body.key);
-    const name = normalizeOptionalText(req.body.name);
-    const description = normalizeOptionalText(req.body.description) || null;
-    const status = ['draft', 'published', 'archived'].includes(req.body.status) ? req.body.status : 'draft';
-    const version = Number.isInteger(req.body.version) ? req.body.version : parseInt(req.body.version || '1', 10);
-    const metadata = req.body.metadata && typeof req.body.metadata === 'object' && !Array.isArray(req.body.metadata)
-        ? req.body.metadata
-        : {};
-
-    if (!key || !name) {
-        return res.status(400).json({ error: 'key and name are required' });
-    }
-    if (!Number.isInteger(version) || version <= 0) {
-        return res.status(400).json({ error: 'version must be a positive integer' });
-    }
-    if (workspaceId) {
-        const workspace = await assertWorkspaceExists(workspaceId);
-        if (!workspace) return res.status(404).json({ error: 'Workspace not found' });
-    }
-    if (taxonomyPresetId) {
-        const taxonomyPreset = await query('SELECT id FROM taxonomy_presets WHERE id = $1', [taxonomyPresetId]);
-        if (taxonomyPreset.rows.length === 0) {
-            return res.status(404).json({ error: 'taxonomy_preset_id not found' });
-        }
-    }
-
-    const result = await query(
-        `
-        INSERT INTO template_presets (
-            workspace_id, taxonomy_preset_id, key, name, version, status, description, metadata, created_by, updated_by
-        )
-        VALUES ($1,$2,$3,$4,$5,$6,$7,$8::jsonb,$9,$10)
-        RETURNING *
-        `,
-        [
-            workspaceId,
-            taxonomyPresetId,
-            key,
-            name,
-            version,
-            status,
-            description,
-            JSON.stringify(metadata),
-            req.user.id,
-            req.user.id,
-        ]
-    );
-
-    res.status(201).json({ preset: result.rows[0] });
-}));
-
-router.patch('/template-presets/:id', asyncHandler(async (req, res) => {
-    const check = await query('SELECT * FROM template_presets WHERE id = $1', [req.params.id]);
-    if (check.rows.length === 0) {
-        return res.status(404).json({ error: 'Template preset not found' });
-    }
-
-    const updates = [];
-    const params = [];
-    let idx = 1;
-
-    if (req.body.name !== undefined) {
-        const name = normalizeOptionalText(req.body.name);
-        if (!name) return res.status(400).json({ error: 'name cannot be empty' });
-        updates.push(`name = $${idx++}`);
-        params.push(name);
-    }
-    if (req.body.description !== undefined) {
-        updates.push(`description = $${idx++}`);
-        params.push(normalizeOptionalText(req.body.description));
-    }
-    if (req.body.status !== undefined) {
-        const status = normalizeOptionalText(req.body.status);
-        if (!['draft', 'published', 'archived'].includes(status)) {
-            return res.status(400).json({ error: 'Invalid status' });
-        }
-        updates.push(`status = $${idx++}`);
-        params.push(status);
-    }
-    if (req.body.taxonomy_preset_id !== undefined) {
-        const taxonomyPresetId = normalizeOptionalText(req.body.taxonomy_preset_id) || null;
-        if (taxonomyPresetId) {
-            const taxonomyPreset = await query('SELECT id FROM taxonomy_presets WHERE id = $1', [taxonomyPresetId]);
-            if (taxonomyPreset.rows.length === 0) {
-                return res.status(404).json({ error: 'taxonomy_preset_id not found' });
-            }
-        }
-        updates.push(`taxonomy_preset_id = $${idx++}`);
-        params.push(taxonomyPresetId);
-    }
-    if (req.body.metadata !== undefined) {
-        if (!req.body.metadata || typeof req.body.metadata !== 'object' || Array.isArray(req.body.metadata)) {
-            return res.status(400).json({ error: 'metadata must be an object' });
-        }
-        updates.push(`metadata = $${idx++}::jsonb`);
-        params.push(JSON.stringify(req.body.metadata));
-    }
-
-    if (updates.length === 0) {
-        return res.status(400).json({ error: 'No fields to update' });
-    }
-
-    updates.push(`updated_by = $${idx++}`);
-    params.push(req.user.id);
-    updates.push('updated_at = NOW()');
-    params.push(req.params.id);
-
-    const result = await query(
-        `UPDATE template_presets SET ${updates.join(', ')} WHERE id = $${idx} RETURNING *`,
-        params
-    );
-
-    res.json({ preset: result.rows[0] });
-}));
-
-router.post('/template-presets/:id/items', asyncHandler(async (req, res) => {
-    const presetResult = await query('SELECT * FROM template_presets WHERE id = $1', [req.params.id]);
-    if (presetResult.rows.length === 0) {
-        return res.status(404).json({ error: 'Template preset not found' });
-    }
-    const preset = presetResult.rows[0];
+router.post('/preset-bundles/:id/items', asyncHandler(async (req, res) => {
+    const bundleId = req.params.id;
+    const bundleCheck = await query('SELECT * FROM preset_bundles WHERE id = $1', [bundleId]);
+    if (bundleCheck.rows.length === 0) return res.status(404).json({ error: 'Preset bundle not found' });
 
     const name = normalizeOptionalText(req.body.name);
     const content = normalizeOptionalText(req.body.content);
@@ -969,263 +538,137 @@ router.post('/template-presets/:id/items', asyncHandler(async (req, res) => {
     const strategyTag = normalizeOptionalText(req.body.strategy_tag) || null;
     const requiresRag = parseBool(req.body.requires_rag, false);
     const isActive = parseBool(req.body.is_active, true);
-    const sortOrder = Number.isInteger(req.body.sort_order)
-        ? req.body.sort_order
-        : (parseInt(req.body.sort_order, 10) || 0);
-    const metadata = req.body.metadata && typeof req.body.metadata === 'object' && !Array.isArray(req.body.metadata)
-        ? req.body.metadata
-        : {};
+    const sortOrder = Number.isInteger(req.body.sort_order) ? req.body.sort_order : (parseInt(req.body.sort_order, 10) || 0);
+    const metadata = req.body.metadata && typeof req.body.metadata === 'object' && !Array.isArray(req.body.metadata) ? req.body.metadata : {};
 
-    if (!name || !content || !category) {
-        return res.status(400).json({ error: 'name, content, and category are required' });
-    }
+    if (!name || !content || !category) return res.status(400).json({ error: 'name, content, and category are required' });
 
-    if (preset.taxonomy_preset_id && subCategory) {
-        const subCheck = await query(
-            `
-            SELECT key, category_key
-            FROM taxonomy_preset_subcategories
-            WHERE preset_id = $1 AND key = $2
-            `,
-            [preset.taxonomy_preset_id, subCategory]
-        );
-        if (subCheck.rows.length === 0) {
-            return res.status(400).json({ error: 'sub_category not found in linked taxonomy preset' });
-        }
-        if (subCheck.rows[0].category_key !== category) {
-            return res.status(400).json({ error: 'category does not match linked taxonomy sub_category category_key' });
-        }
+    if (subCategory) {
+        const subCheck = await query('SELECT key, category_key FROM preset_subcategories WHERE bundle_id = $1 AND key = $2', [bundleId, subCategory]);
+        if (subCheck.rows.length === 0) return res.status(400).json({ error: 'sub_category not found in this bundle' });
+        if (subCheck.rows[0].category_key !== category) return res.status(400).json({ error: 'category does not match subcategory category_key' });
     }
 
     const result = await query(
-        `
-        INSERT INTO template_preset_items (
-            template_preset_id, name, content, category, sub_category, shortcut,
-            is_active, strategy_tag, requires_rag, sort_order, metadata
-        )
-        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11::jsonb)
-        RETURNING *
-        `,
-        [
-            preset.id,
-            name,
-            content,
-            category,
-            subCategory,
-            shortcut,
-            isActive,
-            strategyTag,
-            requiresRag,
-            sortOrder,
-            JSON.stringify(metadata),
-        ]
+        `INSERT INTO preset_items (bundle_id, name, content, category, sub_category, shortcut, is_active, strategy_tag, requires_rag, sort_order, metadata)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11::jsonb) RETURNING *`,
+        [bundleId, name, content, category, subCategory, shortcut, isActive, strategyTag, requiresRag, sortOrder, JSON.stringify(metadata)]
     );
-
     res.status(201).json({ item: result.rows[0] });
 }));
 
-router.patch('/template-presets/items/:id', asyncHandler(async (req, res) => {
-    const check = await query(
-        `
-        SELECT i.*, p.taxonomy_preset_id
-        FROM template_preset_items i
-        JOIN template_presets p ON p.id = i.template_preset_id
-        WHERE i.id = $1
-        `,
-        [req.params.id]
-    );
-    if (check.rows.length === 0) {
-        return res.status(404).json({ error: 'Template preset item not found' });
-    }
+router.patch('/preset-bundles/items/:id', asyncHandler(async (req, res) => {
+    const check = await query('SELECT * FROM preset_items WHERE id = $1', [req.params.id]);
+    if (check.rows.length === 0) return res.status(404).json({ error: 'Preset item not found' });
     const existing = check.rows[0];
 
-    const updates = [];
-    const params = [];
-    let idx = 1;
-
+    const updates = []; const params = []; let idx = 1;
     let nextCategory = existing.category;
     let nextSubCategory = existing.sub_category;
 
     if (req.body.name !== undefined) {
         const name = normalizeOptionalText(req.body.name);
         if (!name) return res.status(400).json({ error: 'name cannot be empty' });
-        updates.push(`name = $${idx++}`);
-        params.push(name);
+        updates.push(`name = $${idx++}`); params.push(name);
     }
     if (req.body.content !== undefined) {
         const content = normalizeOptionalText(req.body.content);
         if (!content) return res.status(400).json({ error: 'content cannot be empty' });
-        updates.push(`content = $${idx++}`);
-        params.push(content);
+        updates.push(`content = $${idx++}`); params.push(content);
     }
     if (req.body.category !== undefined) {
-        const category = normalizeKey(req.body.category);
-        if (!category) return res.status(400).json({ error: 'category cannot be empty' });
-        nextCategory = category;
-        updates.push(`category = $${idx++}`);
-        params.push(category);
+        const cat = normalizeKey(req.body.category);
+        if (!cat) return res.status(400).json({ error: 'category cannot be empty' });
+        nextCategory = cat; updates.push(`category = $${idx++}`); params.push(cat);
     }
     if (req.body.sub_category !== undefined) {
-        const subCategory = normalizeKey(req.body.sub_category);
-        nextSubCategory = subCategory;
-        updates.push(`sub_category = $${idx++}`);
-        params.push(subCategory);
+        nextSubCategory = normalizeKey(req.body.sub_category);
+        updates.push(`sub_category = $${idx++}`); params.push(nextSubCategory);
     }
-    if (req.body.shortcut !== undefined) {
-        updates.push(`shortcut = $${idx++}`);
-        params.push(normalizeOptionalText(req.body.shortcut));
-    }
+    if (req.body.shortcut !== undefined) { updates.push(`shortcut = $${idx++}`); params.push(normalizeOptionalText(req.body.shortcut)); }
     if (req.body.is_active !== undefined) {
         const active = parseBool(req.body.is_active, undefined);
         if (active === undefined) return res.status(400).json({ error: 'is_active must be boolean' });
-        updates.push(`is_active = $${idx++}`);
-        params.push(active);
+        updates.push(`is_active = $${idx++}`); params.push(active);
     }
-    if (req.body.strategy_tag !== undefined) {
-        updates.push(`strategy_tag = $${idx++}`);
-        params.push(normalizeOptionalText(req.body.strategy_tag));
-    }
+    if (req.body.strategy_tag !== undefined) { updates.push(`strategy_tag = $${idx++}`); params.push(normalizeOptionalText(req.body.strategy_tag)); }
     if (req.body.requires_rag !== undefined) {
-        const requiresRag = parseBool(req.body.requires_rag, undefined);
-        if (requiresRag === undefined) return res.status(400).json({ error: 'requires_rag must be boolean' });
-        updates.push(`requires_rag = $${idx++}`);
-        params.push(requiresRag);
+        const rr = parseBool(req.body.requires_rag, undefined);
+        if (rr === undefined) return res.status(400).json({ error: 'requires_rag must be boolean' });
+        updates.push(`requires_rag = $${idx++}`); params.push(rr);
     }
-    if (req.body.sort_order !== undefined) {
-        updates.push(`sort_order = $${idx++}`);
-        params.push(parseInt(req.body.sort_order, 10) || 0);
-    }
+    if (req.body.sort_order !== undefined) { updates.push(`sort_order = $${idx++}`); params.push(parseInt(req.body.sort_order, 10) || 0); }
     if (req.body.metadata !== undefined) {
-        if (!req.body.metadata || typeof req.body.metadata !== 'object' || Array.isArray(req.body.metadata)) {
+        if (!req.body.metadata || typeof req.body.metadata !== 'object' || Array.isArray(req.body.metadata))
             return res.status(400).json({ error: 'metadata must be an object' });
-        }
-        updates.push(`metadata = $${idx++}::jsonb`);
-        params.push(JSON.stringify(req.body.metadata));
+        updates.push(`metadata = $${idx++}::jsonb`); params.push(JSON.stringify(req.body.metadata));
     }
 
-    if (existing.taxonomy_preset_id && nextSubCategory) {
-        const subCheck = await query(
-            `
-            SELECT key, category_key
-            FROM taxonomy_preset_subcategories
-            WHERE preset_id = $1 AND key = $2
-            `,
-            [existing.taxonomy_preset_id, nextSubCategory]
-        );
-        if (subCheck.rows.length === 0) {
-            return res.status(400).json({ error: 'sub_category not found in linked taxonomy preset' });
-        }
-        if (subCheck.rows[0].category_key !== nextCategory) {
-            return res.status(400).json({ error: 'category does not match linked taxonomy sub_category category_key' });
-        }
+    if (nextSubCategory) {
+        const subCheck = await query('SELECT key, category_key FROM preset_subcategories WHERE bundle_id = $1 AND key = $2', [existing.bundle_id, nextSubCategory]);
+        if (subCheck.rows.length === 0) return res.status(400).json({ error: 'sub_category not found in this bundle' });
+        if (subCheck.rows[0].category_key !== nextCategory) return res.status(400).json({ error: 'category does not match subcategory category_key' });
     }
 
-    if (updates.length === 0) {
-        return res.status(400).json({ error: 'No fields to update' });
-    }
+    if (updates.length === 0) return res.status(400).json({ error: 'No fields to update' });
+    updates.push('updated_at = NOW()'); params.push(req.params.id);
 
-    updates.push('updated_at = NOW()');
-    params.push(req.params.id);
-
-    const result = await query(
-        `UPDATE template_preset_items SET ${updates.join(', ')} WHERE id = $${idx} RETURNING *`,
-        params
-    );
-
+    const result = await query(`UPDATE preset_items SET ${updates.join(', ')} WHERE id = $${idx} RETURNING *`, params);
     res.json({ item: result.rows[0] });
 }));
 
-router.delete('/template-presets/items/:id', asyncHandler(async (req, res) => {
-    const check = await query('SELECT id FROM template_preset_items WHERE id = $1', [req.params.id]);
-    if (check.rows.length === 0) {
-        return res.status(404).json({ error: 'Template preset item not found' });
-    }
-    await query('DELETE FROM template_preset_items WHERE id = $1', [req.params.id]);
+router.delete('/preset-bundles/items/:id', asyncHandler(async (req, res) => {
+    const check = await query('SELECT id FROM preset_items WHERE id = $1', [req.params.id]);
+    if (check.rows.length === 0) return res.status(404).json({ error: 'Preset item not found' });
+    await query('DELETE FROM preset_items WHERE id = $1', [req.params.id]);
     res.json({ success: true });
 }));
 
-router.post('/template-presets/:id/import-generator-json', asyncHandler(async (req, res) => {
-    const presetResult = await query('SELECT * FROM template_presets WHERE id = $1', [req.params.id]);
-    if (presetResult.rows.length === 0) {
-        return res.status(404).json({ error: 'Template preset not found' });
-    }
-    const preset = presetResult.rows[0];
+// ============================================
+// IMPORT GENERATOR JSON INTO BUNDLE
+// ============================================
+router.post('/preset-bundles/:id/import-items', asyncHandler(async (req, res) => {
+    const bundleResult = await query('SELECT * FROM preset_bundles WHERE id = $1', [req.params.id]);
+    if (bundleResult.rows.length === 0) return res.status(404).json({ error: 'Preset bundle not found' });
+    const bundle = bundleResult.rows[0];
 
-    const mode = ['replace_all', 'append_skip_existing'].includes(req.body.mode)
-        ? req.body.mode
-        : 'replace_all';
-
+    const mode = ['replace_all', 'append_skip_existing'].includes(req.body.mode) ? req.body.mode : 'replace_all';
     const parsed = parseGeneratorImportPayload(req.body);
-    if (parsed.error) {
-        return res.status(400).json({ error: parsed.error });
-    }
+    if (parsed.error) return res.status(400).json({ error: parsed.error });
+
     const source = parsed.source;
     const templatesInput = source.templates;
 
     const summary = {
-        preset_id: preset.id,
-        mode,
+        bundle_id: bundle.id, mode,
         total_input_templates: templatesInput.length,
         quality_report_entries: Array.isArray(source.quality_report) ? source.quality_report.length : 0,
-        created: 0,
-        replaced_deleted: 0,
-        skipped_invalid: 0,
-        skipped_duplicate_input: 0,
-        skipped_existing: 0,
-        skipped_missing_taxonomy: 0,
-        skipped_taxonomy_mismatch: 0,
+        created: 0, replaced_deleted: 0, skipped_invalid: 0,
+        skipped_duplicate_input: 0, skipped_existing: 0,
+        skipped_missing_taxonomy: 0, skipped_taxonomy_mismatch: 0,
         by_intent: {},
     };
 
     const incIntent = (intent, key) => {
-        const safeIntent = intent || '__no_intent__';
-        if (!summary.by_intent[safeIntent]) {
-            summary.by_intent[safeIntent] = {
-                created: 0,
-                skipped_invalid: 0,
-                skipped_duplicate_input: 0,
-                skipped_existing: 0,
-                skipped_missing_taxonomy: 0,
-                skipped_taxonomy_mismatch: 0,
-            };
+        const k = intent || '__no_intent__';
+        if (!summary.by_intent[k]) {
+            summary.by_intent[k] = { created: 0, skipped_invalid: 0, skipped_duplicate_input: 0, skipped_existing: 0, skipped_missing_taxonomy: 0, skipped_taxonomy_mismatch: 0 };
         }
-        summary.by_intent[safeIntent][key] += 1;
+        summary.by_intent[k][key] += 1;
     };
 
     await transaction(async (client) => {
-        let taxonomySubMap = null;
-        if (preset.taxonomy_preset_id) {
-            const taxRows = await client.query(
-                `
-                SELECT key, category_key
-                FROM taxonomy_preset_subcategories
-                WHERE preset_id = $1
-                `,
-                [preset.taxonomy_preset_id]
-            );
-            taxonomySubMap = new Map(taxRows.rows.map((r) => [r.key, r.category_key]));
-        }
+        const taxRows = await client.query('SELECT key, category_key FROM preset_subcategories WHERE bundle_id = $1', [bundle.id]);
+        const taxonomySubMap = taxRows.rows.length > 0 ? new Map(taxRows.rows.map(r => [r.key, r.category_key])) : null;
 
         let existingKeys = new Set();
         if (mode === 'append_skip_existing') {
-            const existing = await client.query(
-                `
-                SELECT id, sub_category, name
-                FROM template_preset_items
-                WHERE template_preset_id = $1
-                `,
-                [preset.id]
-            );
-            existingKeys = new Set(
-                existing.rows.map((r) => `${String(r.sub_category || '').toLowerCase()}::${String(r.name || '').toLowerCase()}`)
-            );
+            const existing = await client.query('SELECT id, sub_category, name FROM preset_items WHERE bundle_id = $1', [bundle.id]);
+            existingKeys = new Set(existing.rows.map(r => `${String(r.sub_category || '').toLowerCase()}::${String(r.name || '').toLowerCase()}`));
         } else {
-            const count = await client.query(
-                'SELECT COUNT(*)::int AS count FROM template_preset_items WHERE template_preset_id = $1',
-                [preset.id]
-            );
+            const count = await client.query('SELECT COUNT(*)::int AS count FROM preset_items WHERE bundle_id = $1', [bundle.id]);
             summary.replaced_deleted = count.rows[0]?.count || 0;
-            await client.query('DELETE FROM template_preset_items WHERE template_preset_id = $1', [preset.id]);
+            await client.query('DELETE FROM preset_items WHERE bundle_id = $1', [bundle.id]);
         }
 
         const seenInput = new Set();
@@ -1233,103 +676,49 @@ router.post('/template-presets/:id/import-generator-json', asyncHandler(async (r
             const t = normalizeTemplatePresetItemImport(templatesInput[i] || {});
             const intentKey = t.sub_category;
 
-            if (!t.name || !t.content) {
-                summary.skipped_invalid += 1;
-                incIntent(intentKey, 'skipped_invalid');
-                continue;
-            }
+            if (!t.name || !t.content) { summary.skipped_invalid += 1; incIntent(intentKey, 'skipped_invalid'); continue; }
 
             const dedupeKey = `${String(t.sub_category || '').toLowerCase()}::${String(t.name || '').toLowerCase()}`;
-            if (seenInput.has(dedupeKey)) {
-                summary.skipped_duplicate_input += 1;
-                incIntent(intentKey, 'skipped_duplicate_input');
-                continue;
-            }
+            if (seenInput.has(dedupeKey)) { summary.skipped_duplicate_input += 1; incIntent(intentKey, 'skipped_duplicate_input'); continue; }
             seenInput.add(dedupeKey);
 
             if (taxonomySubMap && t.sub_category) {
-                if (!taxonomySubMap.has(t.sub_category)) {
-                    summary.skipped_missing_taxonomy += 1;
-                    incIntent(intentKey, 'skipped_missing_taxonomy');
-                    continue;
-                }
-                const expectedCategory = taxonomySubMap.get(t.sub_category);
-                if (expectedCategory && expectedCategory !== t.category) {
-                    summary.skipped_taxonomy_mismatch += 1;
-                    incIntent(intentKey, 'skipped_taxonomy_mismatch');
-                    continue;
-                }
+                if (!taxonomySubMap.has(t.sub_category)) { summary.skipped_missing_taxonomy += 1; incIntent(intentKey, 'skipped_missing_taxonomy'); continue; }
+                const expectedCat = taxonomySubMap.get(t.sub_category);
+                if (expectedCat && expectedCat !== t.category) { summary.skipped_taxonomy_mismatch += 1; incIntent(intentKey, 'skipped_taxonomy_mismatch'); continue; }
             }
 
-            if (mode === 'append_skip_existing' && existingKeys.has(dedupeKey)) {
-                summary.skipped_existing += 1;
-                incIntent(intentKey, 'skipped_existing');
-                continue;
-            }
+            if (mode === 'append_skip_existing' && existingKeys.has(dedupeKey)) { summary.skipped_existing += 1; incIntent(intentKey, 'skipped_existing'); continue; }
 
             await client.query(
-                `
-                INSERT INTO template_preset_items (
-                    template_preset_id, name, content, category, sub_category, shortcut,
-                    is_active, strategy_tag, requires_rag, sort_order, metadata
-                )
-                VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11::jsonb)
-                `,
-                [
-                    preset.id,
-                    t.name,
-                    t.content,
-                    t.category,
-                    t.sub_category,
-                    t.shortcut === undefined ? null : t.shortcut,
-                    t.is_active !== false,
-                    t.strategy_tag === undefined ? null : t.strategy_tag,
-                    t.requires_rag === true,
-                    t.sort_order || 0,
-                    JSON.stringify({ source: 'generator-json-import' }),
-                ]
+                `INSERT INTO preset_items (bundle_id, name, content, category, sub_category, shortcut, is_active, strategy_tag, requires_rag, sort_order, metadata)
+                 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11::jsonb)`,
+                [bundle.id, t.name, t.content, t.category, t.sub_category, t.shortcut === undefined ? null : t.shortcut,
+                t.is_active !== false, t.strategy_tag === undefined ? null : t.strategy_tag, t.requires_rag === true, t.sort_order || 0,
+                JSON.stringify({ source: 'generator-json-import' })]
             );
 
-            if (mode === 'append_skip_existing') {
-                existingKeys.add(dedupeKey);
-            }
-            summary.created += 1;
-            incIntent(intentKey, 'created');
+            if (mode === 'append_skip_existing') existingKeys.add(dedupeKey);
+            summary.created += 1; incIntent(intentKey, 'created');
         }
 
-        const mergedMetadata = {
-            ...(preset.metadata || {}),
+        const mergedMeta = {
+            ...(bundle.metadata || {}),
             last_generator_import: {
-                imported_at: new Date().toISOString(),
-                imported_by: req.user.id,
-                mode,
-                total_input_templates: summary.total_input_templates,
-                created: summary.created,
-                replaced_deleted: summary.replaced_deleted,
-                quality_report_entries: summary.quality_report_entries,
+                imported_at: new Date().toISOString(), imported_by: req.user.id, mode,
+                total_input_templates: summary.total_input_templates, created: summary.created,
+                replaced_deleted: summary.replaced_deleted, quality_report_entries: summary.quality_report_entries,
                 source_meta: source.meta && typeof source.meta === 'object' ? source.meta : {},
             },
             generator_quality_report: Array.isArray(source.quality_report) ? source.quality_report : [],
         };
 
-        await client.query(
-            `
-            UPDATE template_presets
-            SET metadata = $1::jsonb,
-                updated_by = $2,
-                updated_at = NOW()
-            WHERE id = $3
-            `,
-            [JSON.stringify(mergedMetadata), req.user.id, preset.id]
-        );
+        await client.query('UPDATE preset_bundles SET metadata = $1::jsonb, updated_by = $2, updated_at = NOW() WHERE id = $3',
+            [JSON.stringify(mergedMeta), req.user.id, bundle.id]);
     });
 
-    const updatedPreset = await query('SELECT * FROM template_presets WHERE id = $1', [preset.id]);
-    res.json({
-        success: true,
-        preset: updatedPreset.rows[0],
-        summary,
-    });
+    const updatedBundle = await query('SELECT * FROM preset_bundles WHERE id = $1', [bundle.id]);
+    res.json({ success: true, bundle: updatedBundle.rows[0], summary });
 }));
 
 // ============================================
@@ -1337,19 +726,13 @@ router.post('/template-presets/:id/import-generator-json', asyncHandler(async (r
 // ============================================
 router.post('/presets/bootstrap-defaults', asyncHandler(async (req, res) => {
     const workspaceId = normalizeOptionalText(req.body.workspace_id) || null;
-    const scope = ['taxonomy', 'templates', 'both'].includes(req.body.scope) ? req.body.scope : 'both';
-
     if (workspaceId) {
         const workspace = await assertWorkspaceExists(workspaceId);
         if (!workspace) return res.status(404).json({ error: 'Workspace not found' });
     }
 
     try {
-        const summary = await bootstrapDefaultPresetsFromLocalSources({
-            workspaceId,
-            actorUserId: req.user.id,
-            scope,
-        });
+        const summary = await bootstrapBundleFromDefaults({ workspaceId, actorUserId: req.user.id });
         return res.json({ success: true, summary });
     } catch (error) {
         if (['PRESET_EMPTY', 'PRESET_NOT_FOUND', 'PRESET_READ_FAILED', 'PRESET_INVALID_JSON'].includes(error.code)) {
@@ -1364,15 +747,7 @@ router.post('/presets/bootstrap-defaults', asyncHandler(async (req, res) => {
 // ============================================
 router.get('/preset-apply-logs', asyncHandler(async (req, res) => {
     const limit = Math.min(Math.max(parseInt(req.query.limit || '50', 10) || 50, 1), 200);
-    const result = await query(
-        `
-        SELECT *
-        FROM preset_apply_logs
-        ORDER BY created_at DESC
-        LIMIT $1
-        `,
-        [limit]
-    );
+    const result = await query('SELECT * FROM preset_apply_logs ORDER BY created_at DESC LIMIT $1', [limit]);
     res.json({ logs: result.rows, limit });
 }));
 
@@ -1381,7 +756,7 @@ router.get('/preset-apply-logs', asyncHandler(async (req, res) => {
 // ============================================
 router.get('/dashboard/stats', asyncHandler(async (req, res) => {
     const [
-        wsRes, usersRes, botsRes, convRes, msgRes, kbRes, taxRes, tplRes, handoffRes
+        wsRes, usersRes, botsRes, convRes, msgRes, kbRes, bundlesRes, handoffRes
     ] = await Promise.all([
         query('SELECT COUNT(*)::int AS total FROM workspaces'),
         query(`
@@ -1422,13 +797,7 @@ router.get('/dashboard/stats', asyncHandler(async (req, res) => {
             SELECT
                 COUNT(*)::int AS total,
                 COUNT(*) FILTER (WHERE status = 'published')::int AS published
-            FROM taxonomy_presets
-        `),
-        query(`
-            SELECT
-                COUNT(*)::int AS total,
-                COUNT(*) FILTER (WHERE status = 'published')::int AS published
-            FROM template_presets
+            FROM preset_bundles
         `),
         query(`
             SELECT COUNT(*)::int AS pending
@@ -1450,10 +819,7 @@ router.get('/dashboard/stats', asyncHandler(async (req, res) => {
         },
         messages: msgRes.rows[0],
         kb: kbRes.rows[0],
-        presets: {
-            taxonomy: taxRes.rows[0],
-            template: tplRes.rows[0]
-        }
+        presets: bundlesRes.rows[0]
     });
 }));
 
@@ -1709,13 +1075,10 @@ router.get('/workspaces/:id/detail', asyncHandler(async (req, res) => {
             [req.params.id]
         ),
         query(
-            `
-            SELECT a.*, tp.name AS taxonomy_preset_name, tmp.name AS template_preset_name
-            FROM workspace_preset_assignments a
-            LEFT JOIN taxonomy_presets tp ON tp.id = a.taxonomy_preset_id
-            LEFT JOIN template_presets tmp ON tmp.id = a.template_preset_id
-            WHERE a.workspace_id = $1
-            `,
+            `SELECT a.*, pb.name AS bundle_name
+             FROM workspace_preset_assignments a
+             LEFT JOIN preset_bundles pb ON pb.id = a.bundle_id
+             WHERE a.workspace_id = $1`,
             [req.params.id]
         )
     ]);

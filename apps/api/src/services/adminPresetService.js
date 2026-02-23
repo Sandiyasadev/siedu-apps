@@ -5,38 +5,30 @@ const {
 } = require('./templateTaxonomyDefaults');
 const { loadTemplatePreset } = require('./templateDefaults');
 
-const DEFAULT_TAXONOMY_PRESET_KEY = 'default-v1';
-const DEFAULT_TEMPLATE_PRESET_KEY = 'default-v1';
-const DEFAULT_PRESET_VERSION = 1;
+const DEFAULT_BUNDLE_KEY = 'default-v1';
+const DEFAULT_BUNDLE_VERSION = 1;
 
 const normalizeScopeWorkspaceId = (value) => (value ? value : null);
 
-const getOrCreatePresetRow = async (client, tableName, payload) => {
+/**
+ * Upsert a preset_bundles row — find by (workspace_id, key, version) or insert.
+ */
+const getOrCreateBundleRow = async (client, payload) => {
     const existing = await client.query(
-        `
-        SELECT id
-        FROM ${tableName}
-        WHERE workspace_id IS NOT DISTINCT FROM $1
-          AND key = $2
-          AND version = $3
-        LIMIT 1
-        `,
+        `SELECT id FROM preset_bundles
+         WHERE workspace_id IS NOT DISTINCT FROM $1
+           AND key = $2 AND version = $3
+         LIMIT 1`,
         [payload.workspace_id, payload.key, payload.version]
     );
 
     if (existing.rows.length > 0) {
         const updated = await client.query(
-            `
-            UPDATE ${tableName}
-            SET name = $1,
-                status = $2,
-                description = $3,
-                metadata = $4::jsonb,
-                updated_by = $5,
-                updated_at = NOW()
-            WHERE id = $6
-            RETURNING *
-            `,
+            `UPDATE preset_bundles
+             SET name = $1, status = $2, description = $3,
+                 metadata = $4::jsonb, updated_by = $5, updated_at = NOW()
+             WHERE id = $6
+             RETURNING *`,
             [
                 payload.name,
                 payload.status,
@@ -50,13 +42,10 @@ const getOrCreatePresetRow = async (client, tableName, payload) => {
     }
 
     const inserted = await client.query(
-        `
-        INSERT INTO ${tableName} (
+        `INSERT INTO preset_bundles (
             workspace_id, key, name, version, status, description, metadata, created_by, updated_by
-        )
-        VALUES ($1,$2,$3,$4,$5,$6,$7::jsonb,$8,$9)
-        RETURNING *
-        `,
+        ) VALUES ($1,$2,$3,$4,$5,$6,$7::jsonb,$8,$9)
+        RETURNING *`,
         [
             payload.workspace_id,
             payload.key,
@@ -72,22 +61,40 @@ const getOrCreatePresetRow = async (client, tableName, payload) => {
     return { row: inserted.rows[0], created: true };
 };
 
-const upsertTaxonomyPresetFromDefaults = async ({
+/**
+ * Bootstrap a full preset bundle from runtime defaults:
+ *   1. Upsert preset_bundles row
+ *   2. Seed preset_categories from DEFAULT_TEMPLATE_CATEGORIES
+ *   3. Seed preset_subcategories from DEFAULT_TEMPLATE_SUBCATEGORIES
+ *   4. Seed preset_items from local JSON file
+ *
+ * Replaces: upsertTaxonomyPresetFromDefaults + upsertTemplatePresetFromLocalFile
+ */
+const bootstrapBundleFromDefaults = async ({
     workspaceId = null,
     actorUserId = null,
-    key = DEFAULT_TAXONOMY_PRESET_KEY,
-    version = DEFAULT_PRESET_VERSION,
+    key = DEFAULT_BUNDLE_KEY,
+    version = DEFAULT_BUNDLE_VERSION,
     status = 'published',
-    name = 'Default Taxonomy Preset',
-    description = 'Default taxonomy preset seeded from runtime defaults',
+    name = 'Default Preset Bundle',
+    description = 'Default preset bundle seeded from runtime defaults + local JSON',
 } = {}) => {
     const scopeWorkspaceId = normalizeScopeWorkspaceId(workspaceId);
 
+    // Pre-flight: load template items from JSON
+    const loaded = loadTemplatePreset(key);
+    const templates = Array.isArray(loaded.templates) ? loaded.templates : [];
+
+    const presetVersion = Number.isInteger(version) && version > 0
+        ? version
+        : (Number.isInteger(loaded.preset_version) ? loaded.preset_version : DEFAULT_BUNDLE_VERSION);
+
     return transaction(async (client) => {
-        const { row: presetRow, created } = await getOrCreatePresetRow(client, 'taxonomy_presets', {
+        // 1. Upsert bundle row
+        const { row: bundleRow, created } = await getOrCreateBundleRow(client, {
             workspace_id: scopeWorkspaceId,
             key,
-            version,
+            version: presetVersion,
             status,
             name,
             description,
@@ -95,45 +102,47 @@ const upsertTaxonomyPresetFromDefaults = async ({
                 source: 'runtime-defaults',
                 categories_total: DEFAULT_TEMPLATE_CATEGORIES.length,
                 subcategories_total: DEFAULT_TEMPLATE_SUBCATEGORIES.length,
+                items_total: templates.length,
+                template_source: loaded.preset_key || key,
+                quality_report: Array.isArray(loaded.quality_report) ? loaded.quality_report : [],
             },
             actor_user_id: actorUserId,
         });
 
-        await client.query('DELETE FROM taxonomy_preset_subcategories WHERE preset_id = $1', [presetRow.id]);
-        await client.query('DELETE FROM taxonomy_preset_categories WHERE preset_id = $1', [presetRow.id]);
+        const bundleId = bundleRow.id;
 
-        for (const category of DEFAULT_TEMPLATE_CATEGORIES) {
+        // 2. Seed categories (delete + re-insert)
+        await client.query('DELETE FROM preset_subcategories WHERE bundle_id = $1', [bundleId]);
+        await client.query('DELETE FROM preset_categories WHERE bundle_id = $1', [bundleId]);
+        await client.query('DELETE FROM preset_items WHERE bundle_id = $1', [bundleId]);
+
+        for (const cat of DEFAULT_TEMPLATE_CATEGORIES) {
             await client.query(
-                `
-                INSERT INTO taxonomy_preset_categories (
-                    preset_id, key, label, description, sort_order, is_active, metadata
-                )
-                VALUES ($1,$2,$3,$4,$5,$6,$7::jsonb)
-                `,
+                `INSERT INTO preset_categories (
+                    bundle_id, key, label, description, sort_order, is_active, metadata
+                ) VALUES ($1,$2,$3,$4,$5,$6,$7::jsonb)`,
                 [
-                    presetRow.id,
-                    category.key,
-                    category.label,
-                    category.description || null,
-                    category.sort_order || 0,
-                    category.is_active !== false,
+                    bundleId,
+                    cat.key,
+                    cat.label,
+                    cat.description || null,
+                    cat.sort_order || 0,
+                    cat.is_active !== false,
                     JSON.stringify({ source: 'runtime-defaults' }),
                 ]
             );
         }
 
+        // 3. Seed subcategories
         for (const sub of DEFAULT_TEMPLATE_SUBCATEGORIES) {
             await client.query(
-                `
-                INSERT INTO taxonomy_preset_subcategories (
-                    preset_id, category_key, key, label, description,
+                `INSERT INTO preset_subcategories (
+                    bundle_id, category_key, key, label, description,
                     reply_mode, greeting_policy, default_template_count,
                     strategy_pool, sort_order, is_active, metadata
-                )
-                VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9::jsonb,$10,$11,$12::jsonb)
-                `,
+                ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9::jsonb,$10,$11,$12::jsonb)`,
                 [
-                    presetRow.id,
+                    bundleId,
                     sub.category_key,
                     sub.key,
                     sub.label,
@@ -149,96 +158,27 @@ const upsertTaxonomyPresetFromDefaults = async ({
             );
         }
 
-        return {
-            created,
-            preset: presetRow,
-            categories_count: DEFAULT_TEMPLATE_CATEGORIES.length,
-            subcategories_count: DEFAULT_TEMPLATE_SUBCATEGORIES.length,
-        };
-    });
-};
-
-const upsertTemplatePresetFromLocalFile = async ({
-    workspaceId = null,
-    actorUserId = null,
-    presetKey = DEFAULT_TEMPLATE_PRESET_KEY,
-    version,
-    status = 'published',
-    name = 'Default Template Preset',
-    description = 'Default template preset imported from generator output JSON',
-    taxonomyPresetId = null,
-} = {}) => {
-    const loaded = loadTemplatePreset(presetKey);
-    const templates = Array.isArray(loaded.templates) ? loaded.templates : [];
-    if (templates.length === 0) {
-        const err = new Error(`Template preset ${presetKey} is empty`);
-        err.code = 'PRESET_EMPTY';
-        throw err;
-    }
-
-    const presetVersion = Number.isInteger(version) && version > 0
-        ? version
-        : (Number.isInteger(loaded.preset_version) ? loaded.preset_version : DEFAULT_PRESET_VERSION);
-
-    const scopeWorkspaceId = normalizeScopeWorkspaceId(workspaceId);
-
-    return transaction(async (client) => {
-        const { row: presetRow, created } = await getOrCreatePresetRow(client, 'template_presets', {
-            workspace_id: scopeWorkspaceId,
-            key: loaded.preset_key || presetKey,
-            version: presetVersion,
-            status,
-            name,
-            description,
-            metadata: {
-                source: 'local-json-file',
-                source_preset_key: presetKey,
-                meta: loaded.meta || {},
-                quality_report: Array.isArray(loaded.quality_report) ? loaded.quality_report : [],
-            },
-            actor_user_id: actorUserId,
-        });
-
-        const finalTaxonomyPresetId = taxonomyPresetId || presetRow.taxonomy_preset_id || null;
-        if (finalTaxonomyPresetId !== presetRow.taxonomy_preset_id) {
-            await client.query(
-                `
-                UPDATE template_presets
-                SET taxonomy_preset_id = $1,
-                    updated_by = $2,
-                    updated_at = NOW()
-                WHERE id = $3
-                `,
-                [finalTaxonomyPresetId, actorUserId || null, presetRow.id]
-            );
-            presetRow.taxonomy_preset_id = finalTaxonomyPresetId;
-        }
-
-        await client.query('DELETE FROM template_preset_items WHERE template_preset_id = $1', [presetRow.id]);
-
-        let insertedCount = 0;
+        // 4. Seed template items from JSON
+        let itemsInserted = 0;
         for (let idx = 0; idx < templates.length; idx += 1) {
             const item = templates[idx] || {};
-            const nameValue = String(item.name || '').trim();
-            const contentValue = String(item.content || '').trim();
-            const categoryValue = String(item.category || 'general').trim() || 'general';
-            const subCategoryValue = item.sub_category == null ? null : String(item.sub_category).trim() || null;
-            if (!nameValue || !contentValue) continue;
+            const nameVal = String(item.name || '').trim();
+            const contentVal = String(item.content || '').trim();
+            const categoryVal = String(item.category || 'general').trim() || 'general';
+            const subCategoryVal = item.sub_category == null ? null : String(item.sub_category).trim() || null;
+            if (!nameVal || !contentVal) continue;
 
             await client.query(
-                `
-                INSERT INTO template_preset_items (
-                    template_preset_id, name, content, category, sub_category, shortcut,
+                `INSERT INTO preset_items (
+                    bundle_id, name, content, category, sub_category, shortcut,
                     is_active, strategy_tag, requires_rag, sort_order, metadata
-                )
-                VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11::jsonb)
-                `,
+                ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11::jsonb)`,
                 [
-                    presetRow.id,
-                    nameValue,
-                    contentValue,
-                    categoryValue,
-                    subCategoryValue,
+                    bundleId,
+                    nameVal,
+                    contentVal,
+                    categoryVal,
+                    subCategoryVal,
                     item.shortcut ? String(item.shortcut).trim() : null,
                     item.is_active !== false,
                     item.strategy_tag ? String(item.strategy_tag).trim() : null,
@@ -247,69 +187,20 @@ const upsertTemplatePresetFromLocalFile = async ({
                     JSON.stringify({ source: 'local-json-file' }),
                 ]
             );
-            insertedCount += 1;
+            itemsInserted += 1;
         }
 
         return {
             created,
-            preset: presetRow,
-            items_count: insertedCount,
-            total_templates_in_file: templates.length,
+            bundle: bundleRow,
+            categories_count: DEFAULT_TEMPLATE_CATEGORIES.length,
+            subcategories_count: DEFAULT_TEMPLATE_SUBCATEGORIES.length,
+            items_count: itemsInserted,
         };
     });
 };
 
-const bootstrapDefaultPresetsFromLocalSources = async ({
-    workspaceId = null,
-    actorUserId = null,
-    scope = 'both',
-} = {}) => {
-    if (!['taxonomy', 'templates', 'both'].includes(scope)) {
-        const err = new Error('scope must be taxonomy, templates, or both');
-        err.status = 400;
-        throw err;
-    }
-
-    if (scope === 'templates' || scope === 'both') {
-        const preflight = loadTemplatePreset(DEFAULT_TEMPLATE_PRESET_KEY);
-        const preflightTemplates = Array.isArray(preflight.templates) ? preflight.templates : [];
-        if (preflightTemplates.length === 0) {
-            const err = new Error(`Template preset ${DEFAULT_TEMPLATE_PRESET_KEY} is empty`);
-            err.code = 'PRESET_EMPTY';
-            throw err;
-        }
-    }
-
-    const summary = {
-        scope,
-        workspace_id: normalizeScopeWorkspaceId(workspaceId),
-        taxonomy: null,
-        templates: null,
-    };
-
-    if (scope === 'taxonomy' || scope === 'both') {
-        summary.taxonomy = await upsertTaxonomyPresetFromDefaults({
-            workspaceId: summary.workspace_id,
-            actorUserId,
-            status: 'published',
-        });
-    }
-
-    if (scope === 'templates' || scope === 'both') {
-        summary.templates = await upsertTemplatePresetFromLocalFile({
-            workspaceId: summary.workspace_id,
-            actorUserId,
-            presetKey: DEFAULT_TEMPLATE_PRESET_KEY,
-            status: 'published',
-            taxonomyPresetId: summary.taxonomy?.preset?.id || null,
-        });
-    }
-
-    return summary;
-};
-
 module.exports = {
-    bootstrapDefaultPresetsFromLocalSources,
-    upsertTaxonomyPresetFromDefaults,
-    upsertTemplatePresetFromLocalFile,
+    bootstrapBundleFromDefaults,
+    getOrCreateBundleRow,
 };

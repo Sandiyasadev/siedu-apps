@@ -372,6 +372,7 @@ CREATE TABLE IF NOT EXISTS workspace_preset_assignments (
     workspace_id UUID PRIMARY KEY REFERENCES workspaces(id) ON DELETE CASCADE,
     taxonomy_preset_id UUID REFERENCES taxonomy_presets(id) ON DELETE SET NULL,
     template_preset_id UUID REFERENCES template_presets(id) ON DELETE SET NULL,
+    bundle_id UUID,  -- v6: unified preset bundle FK (added by migration)
     assigned_by UUID REFERENCES users(id) ON DELETE SET NULL,
     assigned_at TIMESTAMPTZ DEFAULT NOW(),
     updated_at TIMESTAMPTZ DEFAULT NOW()
@@ -383,6 +384,7 @@ CREATE TABLE IF NOT EXISTS preset_apply_logs (
     bot_id UUID REFERENCES bots(id) ON DELETE CASCADE,
     taxonomy_preset_id UUID REFERENCES taxonomy_presets(id) ON DELETE SET NULL,
     template_preset_id UUID REFERENCES template_presets(id) ON DELETE SET NULL,
+    bundle_id UUID,  -- v6: unified preset bundle FK (added by migration)
     mode VARCHAR(50) NOT NULL DEFAULT 'skip_existing',
     action_scope VARCHAR(20) NOT NULL DEFAULT 'both',
     summary_json JSONB NOT NULL DEFAULT '{}'::jsonb,
@@ -399,6 +401,112 @@ CREATE INDEX IF NOT EXISTS idx_preset_apply_logs_bot_created
     ON preset_apply_logs (bot_id, created_at DESC);
 
 -- ============================================
+-- UNIFIED PRESET BUNDLES (v6 merge)
+-- Replaces: taxonomy_presets + template_presets
+-- ============================================
+CREATE TABLE IF NOT EXISTS preset_bundles (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    workspace_id UUID REFERENCES workspaces(id) ON DELETE CASCADE,
+    key VARCHAR(100) NOT NULL,
+    name VARCHAR(255) NOT NULL,
+    version INTEGER NOT NULL DEFAULT 1,
+    status VARCHAR(20) NOT NULL DEFAULT 'draft',
+    description TEXT,
+    metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
+    created_by UUID REFERENCES users(id) ON DELETE SET NULL,
+    updated_by UUID REFERENCES users(id) ON DELETE SET NULL,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW(),
+    CONSTRAINT chk_preset_bundles_status
+        CHECK (status IN ('draft', 'published', 'archived')),
+    CONSTRAINT chk_preset_bundles_version
+        CHECK (version > 0)
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS uq_preset_bundles_scope_key_version
+    ON preset_bundles (COALESCE(workspace_id, '00000000-0000-0000-0000-000000000000'::uuid), key, version);
+
+CREATE INDEX IF NOT EXISTS idx_preset_bundles_scope_status
+    ON preset_bundles (workspace_id, status, created_at DESC);
+
+CREATE TABLE IF NOT EXISTS preset_categories (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    bundle_id UUID NOT NULL REFERENCES preset_bundles(id) ON DELETE CASCADE,
+    key VARCHAR(100) NOT NULL,
+    label VARCHAR(255) NOT NULL,
+    description TEXT,
+    sort_order INTEGER NOT NULL DEFAULT 0,
+    is_active BOOLEAN NOT NULL DEFAULT true,
+    metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW(),
+    UNIQUE (bundle_id, key)
+);
+
+CREATE INDEX IF NOT EXISTS idx_preset_categories_bundle
+    ON preset_categories (bundle_id, sort_order, label);
+
+CREATE TABLE IF NOT EXISTS preset_subcategories (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    bundle_id UUID NOT NULL REFERENCES preset_bundles(id) ON DELETE CASCADE,
+    category_key VARCHAR(100) NOT NULL,
+    key VARCHAR(100) NOT NULL,
+    label VARCHAR(255) NOT NULL,
+    description TEXT,
+    reply_mode VARCHAR(20) NOT NULL DEFAULT 'continuation',
+    greeting_policy VARCHAR(20) NOT NULL DEFAULT 'forbidden',
+    default_template_count INTEGER NOT NULL DEFAULT 3,
+    strategy_pool JSONB NOT NULL DEFAULT '[]'::jsonb,
+    sort_order INTEGER NOT NULL DEFAULT 0,
+    is_active BOOLEAN NOT NULL DEFAULT true,
+    metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW(),
+    UNIQUE (bundle_id, key),
+    CONSTRAINT chk_preset_subcategories_reply_mode
+        CHECK (reply_mode IN ('opening', 'mixed', 'continuation')),
+    CONSTRAINT chk_preset_subcategories_greeting_policy
+        CHECK (greeting_policy IN ('required', 'optional_short', 'forbidden')),
+    CONSTRAINT chk_preset_subcategories_default_count
+        CHECK (default_template_count > 0)
+);
+
+CREATE INDEX IF NOT EXISTS idx_preset_subcategories_bundle
+    ON preset_subcategories (bundle_id, category_key, sort_order, label);
+
+CREATE TABLE IF NOT EXISTS preset_items (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    bundle_id UUID NOT NULL REFERENCES preset_bundles(id) ON DELETE CASCADE,
+    name VARCHAR(255) NOT NULL,
+    content TEXT NOT NULL,
+    category VARCHAR(100) NOT NULL,
+    sub_category VARCHAR(100),
+    shortcut VARCHAR(50),
+    is_active BOOLEAN NOT NULL DEFAULT true,
+    strategy_tag VARCHAR(100),
+    requires_rag BOOLEAN NOT NULL DEFAULT false,
+    sort_order INTEGER NOT NULL DEFAULT 0,
+    metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW(),
+    UNIQUE (bundle_id, sub_category, name)
+);
+
+CREATE INDEX IF NOT EXISTS idx_preset_items_bundle
+    ON preset_items (bundle_id, category, sub_category, sort_order);
+
+-- Add FK constraints for bundle_id (deferred because preset_bundles created after assignments)
+ALTER TABLE workspace_preset_assignments
+    DROP CONSTRAINT IF EXISTS fk_wpa_bundle_id;
+ALTER TABLE workspace_preset_assignments
+    ADD CONSTRAINT fk_wpa_bundle_id FOREIGN KEY (bundle_id) REFERENCES preset_bundles(id) ON DELETE SET NULL;
+
+ALTER TABLE preset_apply_logs
+    DROP CONSTRAINT IF EXISTS fk_pal_bundle_id;
+ALTER TABLE preset_apply_logs
+    ADD CONSTRAINT fk_pal_bundle_id FOREIGN KEY (bundle_id) REFERENCES preset_bundles(id) ON DELETE SET NULL;
+
+-- ============================================
 -- KB SOURCES
 -- ============================================
 CREATE TABLE IF NOT EXISTS kb_sources (
@@ -413,8 +521,8 @@ CREATE TABLE IF NOT EXISTS kb_sources (
     status VARCHAR(50) DEFAULT 'processing', -- processing, indexed, error, deleted
     error_message TEXT,
     chunk_count INTEGER DEFAULT 0,
-    kb_type VARCHAR(50) DEFAULT 'facts',
-    category VARCHAR(100) DEFAULT 'general',
+    kb_type VARCHAR(50) DEFAULT 'faq',
+    topic VARCHAR(100) DEFAULT 'general',
     language VARCHAR(10) DEFAULT 'id',
     created_at TIMESTAMPTZ DEFAULT NOW(),
     indexed_at TIMESTAMPTZ,
