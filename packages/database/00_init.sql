@@ -30,6 +30,8 @@ CREATE TABLE IF NOT EXISTS users (
     name VARCHAR(255) NOT NULL,
     role VARCHAR(50) DEFAULT 'admin',
     is_active BOOLEAN DEFAULT true,
+    last_login_at TIMESTAMPTZ,
+    last_login_ip INET,
     created_at TIMESTAMPTZ DEFAULT NOW(),
     updated_at TIMESTAMPTZ DEFAULT NOW()
 );
@@ -145,6 +147,9 @@ CREATE TABLE IF NOT EXISTS conversations (
     handoff_resolved_at TIMESTAMPTZ,
     pending_handoff_offer BOOLEAN DEFAULT false,
     assigned_agent VARCHAR(255),
+    -- V1 simplified handoff tracking
+    last_agent_reply_at TIMESTAMPTZ,
+    unanswered_count INTEGER DEFAULT 0,
     -- Message tracking
     last_user_at TIMESTAMPTZ,
     last_message_preview TEXT,
@@ -164,6 +169,9 @@ CREATE INDEX IF NOT EXISTS idx_conversations_cursor ON conversations(cursor_id);
 CREATE INDEX IF NOT EXISTS idx_conversations_contact ON conversations(contact_id);
 CREATE INDEX IF NOT EXISTS idx_conversations_thread ON conversations(external_thread_id);
 CREATE INDEX IF NOT EXISTS idx_conversations_last_user ON conversations(last_user_at DESC);
+CREATE INDEX IF NOT EXISTS idx_conversations_status_handoff
+    ON conversations(status, last_agent_reply_at)
+    WHERE status = 'human';
 
 -- ============================================
 -- MESSAGES
@@ -184,6 +192,15 @@ CREATE INDEX IF NOT EXISTS idx_messages_conversation ON messages(conversation_id
 CREATE INDEX IF NOT EXISTS idx_messages_cursor ON messages(cursor_id);
 CREATE INDEX IF NOT EXISTS idx_messages_created ON messages(conversation_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_messages_provider_id ON messages(provider_message_id);
+
+-- Idempotency indexes: prevent duplicate messages from webhook retries
+CREATE UNIQUE INDEX IF NOT EXISTS idx_messages_wa_message_id
+    ON messages ((raw->>'wa_message_id'))
+    WHERE raw->>'wa_message_id' IS NOT NULL;
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_messages_telegram_update_id
+    ON messages ((raw->>'telegram_update_id'))
+    WHERE raw->>'telegram_update_id' IS NOT NULL;
 
 -- ============================================
 -- TEMPLATES
@@ -655,6 +672,25 @@ CREATE TABLE IF NOT EXISTS audit_log (
 );
 
 CREATE INDEX IF NOT EXISTS idx_audit_workspace ON audit_log(workspace_id);
+
+-- ============================================
+-- REFRESH TOKENS (Auth token rotation)
+-- ============================================
+CREATE TABLE IF NOT EXISTS refresh_tokens (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    token_hash TEXT NOT NULL,
+    expires_at TIMESTAMPTZ NOT NULL,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    revoked_at TIMESTAMPTZ,
+    ip_address INET,
+    user_agent TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_refresh_tokens_user ON refresh_tokens(user_id);
+CREATE INDEX IF NOT EXISTS idx_refresh_tokens_hash ON refresh_tokens(token_hash);
+CREATE INDEX IF NOT EXISTS idx_refresh_tokens_cleanup
+    ON refresh_tokens(expires_at) WHERE revoked_at IS NULL;
 
 -- ============================================
 -- VIEW: Active Handoff Queue
