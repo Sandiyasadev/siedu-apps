@@ -2,24 +2,22 @@ import { useState, useEffect, useCallback } from 'react'
 import { useAuth } from '../../App'
 import { API_BASE } from '../../config/api'
 import {
-    Rocket, Building2, Package, Eye, CheckCircle2, AlertCircle,
-    Loader2, ChevronRight, X, ArrowRight, ArrowLeft, RefreshCw,
-    FileText, FolderOpen, Plus, Minus, RotateCcw
+    Rocket, Building2, Package, Eye, CheckCircle2, AlertTriangle,
+    X, ArrowRight, ArrowLeft, RefreshCw, Plus, RotateCcw
 } from 'lucide-react'
 
 const STEPS = [
-    { key: 'workspace', label: 'Select Workspace', icon: Building2 },
-    { key: 'bundle', label: 'Select Bundle', icon: Package },
-    { key: 'preview', label: 'Preview Changes', icon: Eye },
-    { key: 'apply', label: 'Apply', icon: Rocket },
+    { label: 'Pilih Workspace', icon: Building2 },
+    { label: 'Pilih Bundle', icon: Package },
+    { label: 'Preview', icon: Eye },
+    { label: 'Apply', icon: Rocket },
 ]
 
 function PresetDeploy() {
     const { getToken } = useAuth()
-    const authHeaders = useCallback(() => {
-        const token = getToken()
-        return { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }
-    }, [getToken])
+    const headers = useCallback(() => ({
+        Authorization: `Bearer ${getToken()}`, 'Content-Type': 'application/json'
+    }), [getToken])
 
     const [step, setStep] = useState(0)
     const [workspaces, setWorkspaces] = useState([])
@@ -33,39 +31,35 @@ function PresetDeploy() {
     const [loading, setLoading] = useState(true)
     const [previewLoading, setPreviewLoading] = useState(false)
     const [applyLoading, setApplyLoading] = useState(false)
-    const [error, setError] = useState('')
-    const [notice, setNotice] = useState('')
+    const [notice, setNotice] = useState(null)
 
-    // Fetch workspaces + bundles
     useEffect(() => {
         const load = async () => {
             try {
                 const [wsRes, bRes] = await Promise.all([
-                    fetch(`${API_BASE}/v1/admin/workspaces`, { headers: authHeaders() }),
-                    fetch(`${API_BASE}/v1/admin/preset-bundles`, { headers: authHeaders() }),
+                    fetch(`${API_BASE}/v1/admin/workspaces`, { headers: headers() }),
+                    fetch(`${API_BASE}/v1/admin/preset-bundles`, { headers: headers() }),
                 ])
-                if (!wsRes.ok || !bRes.ok) throw new Error('Failed to load data')
+                if (!wsRes.ok || !bRes.ok) throw new Error('Gagal memuat data')
                 const wsData = await wsRes.json()
                 const bData = await bRes.json()
                 setWorkspaces(wsData.workspaces || [])
                 setBundles((bData.bundles || []).filter(b => b.status === 'published'))
-            } catch (err) { setError(err.message) }
+            } catch (err) { setNotice({ type: 'error', message: err.message }) }
             finally { setLoading(false) }
         }
         load()
-    }, [authHeaders])
+    }, [headers])
 
-    // Auto-clear notices
     useEffect(() => {
-        if (notice) { const t = setTimeout(() => setNotice(''), 5000); return () => clearTimeout(t) }
+        if (notice) { const t = setTimeout(() => setNotice(null), 5000); return () => clearTimeout(t) }
     }, [notice])
 
-    // When workspace changes, fetch its current assignment
     useEffect(() => {
         if (!selectedWorkspaceId) { setExistingAssignment(null); return }
         const fetchAssignment = async () => {
             try {
-                const res = await fetch(`${API_BASE}/v1/admin/workspaces/${selectedWorkspaceId}/preset-assignment`, { headers: authHeaders() })
+                const res = await fetch(`${API_BASE}/v1/admin/workspaces/${selectedWorkspaceId}/preset-assignment`, { headers: headers() })
                 if (res.ok) {
                     const data = await res.json()
                     setExistingAssignment(data.assignment || null)
@@ -74,9 +68,8 @@ function PresetDeploy() {
             } catch { /* ignore */ }
         }
         fetchAssignment()
-    }, [selectedWorkspaceId, authHeaders])
+    }, [selectedWorkspaceId, headers])
 
-    // Navigation
     const canNext = () => {
         if (step === 0) return !!selectedWorkspaceId
         if (step === 1) return !!selectedBundleId
@@ -86,25 +79,20 @@ function PresetDeploy() {
 
     const goNext = async () => {
         if (step === 1) {
-            // Save assignment + trigger preview on step 1→2
             setPreviewLoading(true)
-            setError('')
+            setNotice(null)
             try {
-                // Save assignment first
                 await fetch(`${API_BASE}/v1/admin/workspaces/${selectedWorkspaceId}/preset-assignment`, {
-                    method: 'PUT', headers: authHeaders(),
-                    body: JSON.stringify({ bundle_id: selectedBundleId })
+                    method: 'PUT', headers: headers(), body: JSON.stringify({ bundle_id: selectedBundleId })
                 })
-                // Run preview
                 const res = await fetch(`${API_BASE}/v1/admin/workspaces/${selectedWorkspaceId}/preview-apply-bundle`, {
-                    method: 'POST', headers: authHeaders(),
-                    body: JSON.stringify({ bundle_id: selectedBundleId, mode: applyMode })
+                    method: 'POST', headers: headers(), body: JSON.stringify({ bundle_id: selectedBundleId, mode: applyMode })
                 })
                 const data = await res.json()
-                if (!res.ok) throw new Error(data.error || 'Preview failed')
+                if (!res.ok) throw new Error(data.error || 'Preview gagal')
                 setPreviewData(data.summary)
                 setStep(2)
-            } catch (err) { setError(err.message) }
+            } catch (err) { setNotice({ type: 'error', message: err.message }) }
             finally { setPreviewLoading(false) }
             return
         }
@@ -116,28 +104,25 @@ function PresetDeploy() {
         if (step === 3) setApplyResult(null)
     }
 
-    // Apply
     const handleApply = async () => {
         setApplyLoading(true)
-        setError('')
+        setNotice(null)
         try {
             const res = await fetch(`${API_BASE}/v1/admin/workspaces/${selectedWorkspaceId}/apply-bundle`, {
-                method: 'POST', headers: authHeaders(),
-                body: JSON.stringify({ bundle_id: selectedBundleId, mode: applyMode })
+                method: 'POST', headers: headers(), body: JSON.stringify({ bundle_id: selectedBundleId, mode: applyMode })
             })
             const data = await res.json()
-            if (!res.ok) throw new Error(data.error || 'Apply failed')
+            if (!res.ok) throw new Error(data.error || 'Apply gagal')
             setApplyResult(data.summary)
             setStep(3)
-            setNotice('Bundle applied successfully!')
-        } catch (err) { setError(err.message) }
+            setNotice({ type: 'success', message: 'Bundle berhasil di-apply!' })
+        } catch (err) { setNotice({ type: 'error', message: err.message }) }
         finally { setApplyLoading(false) }
     }
 
-    // Reset
     const handleReset = () => {
         setStep(0); setSelectedWorkspaceId(''); setSelectedBundleId('')
-        setPreviewData(null); setApplyResult(null); setError(''); setNotice('')
+        setPreviewData(null); setApplyResult(null); setNotice(null)
         setExistingAssignment(null); setApplyMode('skip_existing')
     }
 
@@ -145,281 +130,245 @@ function PresetDeploy() {
     const selectedBundle = bundles.find(b => b.id === selectedBundleId)
 
     if (loading) {
-        return (
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', background: '#0f172a', color: '#64748b' }}>
-                <Loader2 size={24} className="spin" />
-            </div>
-        )
+        return <div style={{ display: 'grid', placeItems: 'center', padding: 'var(--space-12)' }}><div className="spinner" /></div>
     }
 
     return (
-        <div style={{ height: '100%', background: '#0f172a', color: '#e2e8f0', fontFamily: "'Inter', sans-serif", display: 'flex', flexDirection: 'column' }}>
-            {/* Stepper header */}
-            <div style={{ padding: '20px 32px 16px', borderBottom: '1px solid #1e293b' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                    {STEPS.map((s, i) => {
-                        const Icon = s.icon
-                        const isActive = i === step
-                        const isDone = i < step
-                        return (
-                            <div key={s.key} style={{ display: 'flex', alignItems: 'center' }}>
-                                <div style={{
-                                    display: 'flex', alignItems: 'center', gap: 8, padding: '8px 16px',
-                                    borderRadius: 8, background: isActive ? '#1e293b' : 'transparent',
-                                    border: isActive ? '1px solid #334155' : '1px solid transparent',
-                                    opacity: isDone ? 0.6 : isActive ? 1 : 0.4,
-                                    transition: 'all 0.2s'
-                                }}>
+        <div>
+            <header className="page-header">
+                <div>
+                    <h1 className="page-title">Deploy Preset</h1>
+                    <p className="page-subtitle">Assign dan apply bundle preset ke workspace</p>
+                </div>
+            </header>
+
+            {/* Stepper */}
+            <div className="card" style={{ marginBottom: 'var(--space-4)' }}>
+                <div className="card-body" style={{ padding: 'var(--space-3) var(--space-4)' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-1)' }}>
+                        {STEPS.map((s, i) => {
+                            const Icon = s.icon
+                            const isActive = i === step
+                            const isDone = i < step
+                            return (
+                                <div key={i} style={{ display: 'flex', alignItems: 'center' }}>
                                     <div style={{
-                                        width: 24, height: 24, borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center',
-                                        background: isDone ? '#166534' : isActive ? '#7c3aed' : '#334155', fontSize: 11, fontWeight: 700
+                                        display: 'flex', alignItems: 'center', gap: 'var(--space-2)',
+                                        padding: 'var(--space-2) var(--space-3)', borderRadius: 'var(--radius-md)',
+                                        background: isActive ? 'var(--primary-50)' : 'transparent',
+                                        border: isActive ? '1px solid var(--primary-200)' : '1px solid transparent',
+                                        opacity: isDone ? 0.6 : isActive ? 1 : 0.4
                                     }}>
-                                        {isDone ? <CheckCircle2 size={14} /> : <Icon size={12} />}
+                                        <div style={{
+                                            width: 24, height: 24, borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                            background: isDone ? 'var(--success-500)' : isActive ? 'var(--primary-600)' : 'var(--gray-200)',
+                                            color: isDone || isActive ? 'white' : 'var(--gray-500)', fontSize: 11, fontWeight: 700
+                                        }}>
+                                            {isDone ? <CheckCircle2 size={14} /> : <Icon size={12} />}
+                                        </div>
+                                        <span className="text-sm" style={{ fontWeight: isActive ? 600 : 400 }}>{s.label}</span>
                                     </div>
-                                    <span style={{ fontSize: 13, fontWeight: isActive ? 700 : 500, color: isActive ? '#e2e8f0' : '#94a3b8' }}>
-                                        {s.label}
-                                    </span>
+                                    {i < STEPS.length - 1 && <ArrowRight size={14} style={{ color: 'var(--gray-300)', margin: '0 var(--space-1)' }} />}
                                 </div>
-                                {i < STEPS.length - 1 && <ChevronRight size={16} style={{ color: '#334155', margin: '0 4px' }} />}
-                            </div>
-                        )
-                    })}
+                            )
+                        })}
+                    </div>
                 </div>
             </div>
 
-            {/* Notices */}
-            {error && (
-                <div style={{ padding: '10px 32px', background: '#7f1d1d', color: '#fca5a5', fontSize: 13, display: 'flex', alignItems: 'center', gap: 8 }}>
-                    <AlertCircle size={14} /> {error}
-                    <button onClick={() => setError('')} style={{ marginLeft: 'auto', background: 'none', border: 'none', color: '#fca5a5', cursor: 'pointer' }}><X size={14} /></button>
-                </div>
-            )}
+            {/* Notice */}
             {notice && (
-                <div style={{ padding: '10px 32px', background: '#14532d', color: '#86efac', fontSize: 13, display: 'flex', alignItems: 'center', gap: 8 }}>
-                    <CheckCircle2 size={14} /> {notice}
+                <div className="card" style={{
+                    marginBottom: 'var(--space-4)',
+                    borderColor: notice.type === 'success' ? 'var(--success-200)' : 'var(--error-200)',
+                    background: notice.type === 'success' ? 'var(--success-50)' : 'var(--error-50)'
+                }}>
+                    <div className="card-body" style={{ padding: 'var(--space-3) var(--space-4)', display: 'flex', alignItems: 'center', gap: 'var(--space-2)' }}>
+                        {notice.type === 'success'
+                            ? <CheckCircle2 size={16} style={{ color: 'var(--success-700)' }} />
+                            : <AlertTriangle size={16} style={{ color: 'var(--error-700)' }} />}
+                        <span className="text-sm" style={{ color: notice.type === 'success' ? 'var(--success-700)' : 'var(--error-700)', flex: 1 }}>
+                            {notice.message}
+                        </span>
+                        <button className="btn btn-ghost btn-sm" onClick={() => setNotice(null)}><X size={14} /></button>
+                    </div>
                 </div>
             )}
 
             {/* Step content */}
-            <div style={{ flex: 1, overflow: 'auto', padding: '24px 32px' }}>
-                {/* Step 0: Select Workspace */}
-                {step === 0 && (
-                    <div>
-                        <h2 style={{ fontSize: 16, fontWeight: 700, marginBottom: 16, color: '#f1f5f9' }}>Select Workspace</h2>
-                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 12 }}>
-                            {workspaces.map(ws => (
-                                <div key={ws.id} onClick={() => setSelectedWorkspaceId(ws.id)}
-                                    style={{
-                                        padding: '14px 16px', borderRadius: 10, cursor: 'pointer',
-                                        background: selectedWorkspaceId === ws.id ? '#1e293b' : '#0f172a',
-                                        border: selectedWorkspaceId === ws.id ? '2px solid #7c3aed' : '1px solid #1e293b',
-                                        transition: 'all 0.15s'
-                                    }}>
-                                    <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                                        <Building2 size={18} style={{ color: selectedWorkspaceId === ws.id ? '#7c3aed' : '#64748b' }} />
-                                        <div>
-                                            <div style={{ fontSize: 14, fontWeight: 600, color: '#e2e8f0' }}>{ws.name}</div>
-                                            {ws.slug && <div style={{ fontSize: 11, color: '#64748b', marginTop: 2 }}>{ws.slug}</div>}
-                                        </div>
-                                    </div>
-                                </div>
-                            ))}
-                        </div>
-                        {existingAssignment && (
-                            <div style={{ marginTop: 16, padding: '12px 16px', borderRadius: 8, background: '#1e293b', border: '1px solid #334155', fontSize: 13 }}>
-                                <span style={{ color: '#94a3b8' }}>Current assignment:</span>{' '}
-                                <strong style={{ color: '#e2e8f0' }}>{existingAssignment.bundle_name || existingAssignment.bundle_id || 'None'}</strong>
-                            </div>
-                        )}
-                    </div>
-                )}
-
-                {/* Step 1: Select Bundle + Mode */}
-                {step === 1 && (
-                    <div>
-                        <h2 style={{ fontSize: 16, fontWeight: 700, marginBottom: 4, color: '#f1f5f9' }}>
-                            Select Bundle for {selectedWorkspace?.name}
-                        </h2>
-                        <p style={{ fontSize: 13, color: '#64748b', marginBottom: 16 }}>Only published bundles are shown.</p>
-
-                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 12, marginBottom: 24 }}>
-                            {bundles.length === 0 ? (
-                                <p style={{ color: '#64748b', fontSize: 13 }}>No published bundles. Go to Preset Editor to publish one.</p>
-                            ) : bundles.map(b => (
-                                <div key={b.id} onClick={() => setSelectedBundleId(b.id)}
-                                    style={{
-                                        padding: '14px 16px', borderRadius: 10, cursor: 'pointer',
-                                        background: selectedBundleId === b.id ? '#1e293b' : '#0f172a',
-                                        border: selectedBundleId === b.id ? '2px solid #7c3aed' : '1px solid #1e293b',
-                                        transition: 'all 0.15s'
-                                    }}>
-                                    <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                                        <Package size={18} style={{ color: selectedBundleId === b.id ? '#7c3aed' : '#64748b' }} />
-                                        <div>
-                                            <div style={{ fontSize: 14, fontWeight: 600, color: '#e2e8f0' }}>{b.name}</div>
-                                            <div style={{ fontSize: 11, color: '#64748b', marginTop: 2 }}>
-                                                v{b.version} · {b.categories_count || 0}C · {b.subcategories_count || 0}S · {b.items_count || 0}I
+            <div className="card">
+                <div className="card-body" style={{ padding: 'var(--space-5)' }}>
+                    {/* Step 0: Select Workspace */}
+                    {step === 0 && (
+                        <div>
+                            <h3 style={{ fontWeight: 600, marginBottom: 'var(--space-4)' }}>Pilih Workspace</h3>
+                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(250px, 1fr))', gap: 'var(--space-3)' }}>
+                                {workspaces.map(ws => (
+                                    <div key={ws.id} onClick={() => setSelectedWorkspaceId(ws.id)}
+                                        style={{
+                                            padding: 'var(--space-3) var(--space-4)', borderRadius: 'var(--radius-md)', cursor: 'pointer',
+                                            background: selectedWorkspaceId === ws.id ? 'var(--primary-50)' : 'white',
+                                            border: selectedWorkspaceId === ws.id ? '2px solid var(--primary-500)' : '1px solid var(--gray-200)',
+                                            transition: 'all 0.15s'
+                                        }}>
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-3)' }}>
+                                            <Building2 size={18} style={{ color: selectedWorkspaceId === ws.id ? 'var(--primary-600)' : 'var(--gray-400)' }} />
+                                            <div>
+                                                <div style={{ fontWeight: 600, fontSize: 'var(--font-size-sm)' }}>{ws.name}</div>
+                                                {ws.slug && <div className="text-xs text-muted">{ws.slug}</div>}
                                             </div>
                                         </div>
                                     </div>
-                                </div>
-                            ))}
-                        </div>
-
-                        {/* Apply mode */}
-                        <div style={{ marginBottom: 16 }}>
-                            <label style={{ fontSize: 13, fontWeight: 600, color: '#94a3b8', display: 'block', marginBottom: 8 }}>Apply Mode</label>
-                            <div style={{ display: 'flex', gap: 12 }}>
-                                {[
-                                    { value: 'skip_existing', label: 'Skip Existing', desc: 'Only add new items, skip duplicates' },
-                                    { value: 'reactivate_existing', label: 'Reactivate', desc: 'Add new + reactivate inactive duplicates' },
-                                ].map(opt => (
-                                    <div key={opt.value} onClick={() => setApplyMode(opt.value)}
-                                        style={{
-                                            padding: '12px 16px', borderRadius: 8, cursor: 'pointer', flex: 1,
-                                            background: applyMode === opt.value ? '#1e293b' : '#0f172a',
-                                            border: applyMode === opt.value ? '2px solid #7c3aed' : '1px solid #1e293b',
-                                        }}>
-                                        <div style={{ fontSize: 13, fontWeight: 600, color: '#e2e8f0' }}>{opt.label}</div>
-                                        <div style={{ fontSize: 11, color: '#64748b', marginTop: 4 }}>{opt.desc}</div>
-                                    </div>
                                 ))}
                             </div>
-                        </div>
-                    </div>
-                )}
-
-                {/* Step 2: Preview */}
-                {step === 2 && previewData && (
-                    <div>
-                        <h2 style={{ fontSize: 16, fontWeight: 700, marginBottom: 4, color: '#f1f5f9' }}>
-                            Preview: {selectedBundle?.name} → {selectedWorkspace?.name}
-                        </h2>
-                        <p style={{ fontSize: 13, color: '#64748b', marginBottom: 20 }}>
-                            Mode: <strong style={{ color: '#94a3b8' }}>{applyMode}</strong> · {previewData.bots?.length || 0} bot(s) affected
-                        </p>
-
-                        {(previewData.bots || []).map((bot, idx) => (
-                            <div key={idx} style={{ marginBottom: 16, padding: '14px 16px', borderRadius: 10, background: '#1e293b', border: '1px solid #334155' }}>
-                                <div style={{ fontSize: 14, fontWeight: 600, color: '#e2e8f0', marginBottom: 10 }}>
-                                    🤖 {bot.bot_name || bot.bot_id}
+                            {existingAssignment && (
+                                <div style={{ marginTop: 'var(--space-4)', padding: 'var(--space-3)', borderRadius: 'var(--radius-md)', background: 'var(--gray-50)', border: '1px solid var(--gray-200)' }}>
+                                    <span className="text-sm text-muted">Assignment saat ini: </span>
+                                    <strong className="text-sm">{existingAssignment.bundle_name || 'None'}</strong>
                                 </div>
-                                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12 }}>
-                                    <PreviewStat label="Categories" toCreate={bot.categories?.to_create} existing={bot.categories?.already_exist} />
-                                    <PreviewStat label="Subcategories" toCreate={bot.subcategories?.to_create} existing={bot.subcategories?.already_exist} />
-                                    <PreviewStat label="Items" toCreate={bot.items?.to_create} existing={bot.items?.already_exist} skipped={bot.items?.skipped_existing} />
-                                </div>
-                            </div>
-                        ))}
-
-                        {(previewData.bots || []).length === 0 && (
-                            <div style={{ padding: 20, textAlign: 'center', color: '#64748b', fontSize: 13 }}>
-                                No bots found in this workspace.
-                            </div>
-                        )}
-                    </div>
-                )}
-
-                {/* Step 3: Applied */}
-                {step === 3 && (
-                    <div style={{ textAlign: 'center', paddingTop: 32 }}>
-                        <div style={{
-                            width: 64, height: 64, borderRadius: '50%', background: '#166534',
-                            display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 16px'
-                        }}>
-                            <CheckCircle2 size={32} style={{ color: '#86efac' }} />
+                            )}
                         </div>
-                        <h2 style={{ fontSize: 20, fontWeight: 700, color: '#f1f5f9', marginBottom: 8 }}>Bundle Applied!</h2>
-                        <p style={{ fontSize: 14, color: '#94a3b8', marginBottom: 24 }}>
-                            <strong>{selectedBundle?.name}</strong> has been applied to <strong>{selectedWorkspace?.name}</strong>
-                        </p>
+                    )}
 
-                        {applyResult && (
-                            <div style={{ display: 'inline-block', textAlign: 'left', padding: '16px 24px', borderRadius: 10, background: '#1e293b', border: '1px solid #334155', marginBottom: 24 }}>
-                                {(applyResult.bots || []).map((bot, idx) => (
-                                    <div key={idx} style={{ marginBottom: idx < (applyResult.bots || []).length - 1 ? 12 : 0 }}>
-                                        <div style={{ fontSize: 13, fontWeight: 600, color: '#e2e8f0', marginBottom: 6 }}>🤖 {bot.bot_name || bot.bot_id}</div>
-                                        <div style={{ fontSize: 12, color: '#94a3b8', display: 'flex', gap: 16 }}>
-                                            <span><Plus size={10} style={{ color: '#22c55e' }} /> {bot.categories?.created || 0} cat</span>
-                                            <span><Plus size={10} style={{ color: '#22c55e' }} /> {bot.subcategories?.created || 0} sub</span>
-                                            <span><Plus size={10} style={{ color: '#22c55e' }} /> {bot.items?.created || 0} items</span>
+                    {/* Step 1: Select Bundle + Mode */}
+                    {step === 1 && (
+                        <div>
+                            <h3 style={{ fontWeight: 600, marginBottom: 'var(--space-2)' }}>Pilih Bundle untuk {selectedWorkspace?.name}</h3>
+                            <p className="text-sm text-muted" style={{ marginBottom: 'var(--space-4)' }}>Hanya bundle published yang ditampilkan.</p>
+                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(250px, 1fr))', gap: 'var(--space-3)', marginBottom: 'var(--space-5)' }}>
+                                {bundles.length === 0 ? (
+                                    <p className="text-sm text-muted">Belum ada bundle published. Publish di Preset Editor.</p>
+                                ) : bundles.map(b => (
+                                    <div key={b.id} onClick={() => setSelectedBundleId(b.id)}
+                                        style={{
+                                            padding: 'var(--space-3) var(--space-4)', borderRadius: 'var(--radius-md)', cursor: 'pointer',
+                                            background: selectedBundleId === b.id ? 'var(--primary-50)' : 'white',
+                                            border: selectedBundleId === b.id ? '2px solid var(--primary-500)' : '1px solid var(--gray-200)',
+                                        }}>
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-3)' }}>
+                                            <Package size={18} style={{ color: selectedBundleId === b.id ? 'var(--primary-600)' : 'var(--gray-400)' }} />
+                                            <div>
+                                                <div style={{ fontWeight: 600, fontSize: 'var(--font-size-sm)' }}>{b.name}</div>
+                                                <div className="text-xs text-muted">v{b.version} · {b.categories_count || 0}C · {b.items_count || 0}I</div>
+                                            </div>
                                         </div>
                                     </div>
                                 ))}
                             </div>
-                        )}
 
-                        <div>
-                            <button onClick={handleReset} style={{ ...actionBtnStyle, background: '#334155' }}>
-                                <RotateCcw size={14} /> Deploy Another
-                            </button>
+                            <h4 className="text-sm" style={{ fontWeight: 600, marginBottom: 'var(--space-3)', color: 'var(--gray-500)', textTransform: 'uppercase', fontSize: 11 }}>Apply Mode</h4>
+                            <div style={{ display: 'flex', gap: 'var(--space-3)' }}>
+                                {[
+                                    { value: 'skip_existing', label: 'Skip Existing', desc: 'Hanya tambah item baru, skip duplikat' },
+                                    { value: 'reactivate_existing', label: 'Reactivate', desc: 'Tambah baru + aktifkan kembali duplikat' },
+                                ].map(opt => (
+                                    <div key={opt.value} onClick={() => setApplyMode(opt.value)}
+                                        style={{
+                                            padding: 'var(--space-3) var(--space-4)', borderRadius: 'var(--radius-md)', cursor: 'pointer', flex: 1,
+                                            background: applyMode === opt.value ? 'var(--primary-50)' : 'white',
+                                            border: applyMode === opt.value ? '2px solid var(--primary-500)' : '1px solid var(--gray-200)',
+                                        }}>
+                                        <div style={{ fontWeight: 600, fontSize: 'var(--font-size-sm)' }}>{opt.label}</div>
+                                        <div className="text-xs text-muted" style={{ marginTop: 4 }}>{opt.desc}</div>
+                                    </div>
+                                ))}
+                            </div>
                         </div>
-                    </div>
-                )}
+                    )}
+
+                    {/* Step 2: Preview */}
+                    {step === 2 && previewData && (
+                        <div>
+                            <h3 style={{ fontWeight: 600, marginBottom: 'var(--space-2)' }}>Preview: {selectedBundle?.name} → {selectedWorkspace?.name}</h3>
+                            <p className="text-sm text-muted" style={{ marginBottom: 'var(--space-4)' }}>
+                                Mode: <strong>{applyMode}</strong> · {previewData.bots?.length || 0} bot(s)
+                            </p>
+                            {(previewData.bots || []).map((bot, idx) => (
+                                <div key={idx} style={{ padding: 'var(--space-4)', borderRadius: 'var(--radius-md)', background: 'var(--gray-50)', border: '1px solid var(--gray-200)', marginBottom: 'var(--space-3)' }}>
+                                    <div style={{ fontWeight: 600, marginBottom: 'var(--space-3)' }}>🤖 {bot.bot_name || bot.bot_id}</div>
+                                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 'var(--space-3)' }}>
+                                        <PreviewStat label="Categories" toCreate={bot.categories?.to_create} existing={bot.categories?.already_exist} />
+                                        <PreviewStat label="Subcategories" toCreate={bot.subcategories?.to_create} existing={bot.subcategories?.already_exist} />
+                                        <PreviewStat label="Items" toCreate={bot.items?.to_create} existing={bot.items?.already_exist} skipped={bot.items?.skipped_existing} />
+                                    </div>
+                                </div>
+                            ))}
+                            {(previewData.bots || []).length === 0 && (
+                                <div style={{ textAlign: 'center', padding: 'var(--space-6)', color: 'var(--gray-400)' }}>
+                                    <p className="text-sm">Tidak ada bot di workspace ini.</p>
+                                </div>
+                            )}
+                        </div>
+                    )}
+
+                    {/* Step 3: Applied */}
+                    {step === 3 && (
+                        <div style={{ textAlign: 'center', padding: 'var(--space-6)' }}>
+                            <div style={{
+                                width: 56, height: 56, borderRadius: '50%', background: 'var(--success-100)',
+                                display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto var(--space-4)'
+                            }}>
+                                <CheckCircle2 size={28} style={{ color: 'var(--success-600)' }} />
+                            </div>
+                            <h2 style={{ fontWeight: 700, marginBottom: 'var(--space-2)' }}>Bundle berhasil di-apply!</h2>
+                            <p className="text-sm text-muted" style={{ marginBottom: 'var(--space-4)' }}>
+                                <strong>{selectedBundle?.name}</strong> → <strong>{selectedWorkspace?.name}</strong>
+                            </p>
+                            {applyResult && (applyResult.bots || []).map((bot, idx) => (
+                                <div key={idx} style={{ display: 'inline-block', textAlign: 'left', padding: 'var(--space-3) var(--space-4)', borderRadius: 'var(--radius-md)', background: 'var(--gray-50)', border: '1px solid var(--gray-200)', marginBottom: 'var(--space-3)' }}>
+                                    <div className="text-sm" style={{ fontWeight: 600, marginBottom: 'var(--space-2)' }}>🤖 {bot.bot_name || bot.bot_id}</div>
+                                    <div className="text-xs text-muted" style={{ display: 'flex', gap: 'var(--space-4)' }}>
+                                        <span><Plus size={10} style={{ color: 'var(--success-600)' }} /> {bot.categories?.created || 0} cat</span>
+                                        <span><Plus size={10} style={{ color: 'var(--success-600)' }} /> {bot.subcategories?.created || 0} sub</span>
+                                        <span><Plus size={10} style={{ color: 'var(--success-600)' }} /> {bot.items?.created || 0} items</span>
+                                    </div>
+                                </div>
+                            ))}
+                            <div style={{ marginTop: 'var(--space-4)' }}>
+                                <button className="btn btn-secondary" onClick={handleReset}>
+                                    <RotateCcw size={14} /> Deploy Lagi
+                                </button>
+                            </div>
+                        </div>
+                    )}
+                </div>
             </div>
 
             {/* Footer nav */}
             {step < 3 && (
-                <div style={{ padding: '16px 32px', borderTop: '1px solid #1e293b', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <button onClick={step === 0 ? handleReset : goBack} disabled={step === 0}
-                        style={{ ...actionBtnStyle, background: '#1e293b', border: '1px solid #334155', opacity: step === 0 ? 0.4 : 1 }}>
-                        <ArrowLeft size={14} /> Back
+                <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 'var(--space-4)' }}>
+                    <button className="btn btn-secondary" onClick={step === 0 ? handleReset : goBack} disabled={step === 0}>
+                        <ArrowLeft size={14} /> Kembali
                     </button>
-
-                    <div style={{ display: 'flex', gap: 12 }}>
+                    <div style={{ display: 'flex', gap: 'var(--space-3)' }}>
                         {step === 2 && (
-                            <button onClick={handleApply} disabled={applyLoading}
-                                style={{ ...actionBtnStyle, background: 'linear-gradient(135deg, #7c3aed, #6d28d9)', opacity: applyLoading ? 0.6 : 1 }}>
-                                {applyLoading ? <Loader2 size={14} className="spin" /> : <Rocket size={14} />}
-                                <span>Apply Now</span>
+                            <button className="btn btn-primary" onClick={handleApply} disabled={applyLoading}>
+                                {applyLoading ? <RefreshCw size={14} className="spinner" /> : <Rocket size={14} />}
+                                Apply Sekarang
                             </button>
                         )}
                         {step < 2 && (
-                            <button onClick={goNext} disabled={!canNext() || previewLoading}
-                                style={{ ...actionBtnStyle, background: '#7c3aed', opacity: !canNext() || previewLoading ? 0.4 : 1 }}>
-                                {previewLoading ? <Loader2 size={14} className="spin" /> : null}
-                                <span>{step === 1 ? 'Preview' : 'Next'}</span>
-                                <ArrowRight size={14} />
+                            <button className="btn btn-primary" onClick={goNext} disabled={!canNext() || previewLoading}>
+                                {previewLoading ? <RefreshCw size={14} className="spinner" /> : null}
+                                {step === 1 ? 'Preview' : 'Selanjutnya'} <ArrowRight size={14} />
                             </button>
                         )}
                     </div>
                 </div>
             )}
-
-            <style>{`
-                @keyframes spin { to { transform: rotate(360deg) } }
-                .spin { animation: spin 1s linear infinite; }
-            `}</style>
         </div>
     )
 }
 
-// Preview stat card
 function PreviewStat({ label, toCreate = 0, existing = 0, skipped = 0 }) {
     return (
-        <div style={{ padding: '10px 12px', borderRadius: 8, background: '#0f172a', border: '1px solid #1e293b' }}>
-            <div style={{ fontSize: 11, fontWeight: 600, color: '#64748b', marginBottom: 6, textTransform: 'uppercase' }}>{label}</div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                <div style={{ fontSize: 12, color: '#22c55e', display: 'flex', alignItems: 'center', gap: 4 }}>
-                    <Plus size={10} /> {toCreate} to create
-                </div>
-                <div style={{ fontSize: 12, color: '#94a3b8', display: 'flex', alignItems: 'center', gap: 4 }}>
-                    <Minus size={10} /> {existing} existing
-                </div>
-                {skipped > 0 && (
-                    <div style={{ fontSize: 12, color: '#f59e0b', display: 'flex', alignItems: 'center', gap: 4 }}>
-                        <Minus size={10} /> {skipped} skipped
-                    </div>
-                )}
-            </div>
+        <div style={{ padding: 'var(--space-2) var(--space-3)', borderRadius: 'var(--radius-sm)', background: 'white', border: '1px solid var(--gray-200)' }}>
+            <div style={{ fontSize: 10, fontWeight: 600, color: 'var(--gray-500)', marginBottom: 'var(--space-1)', textTransform: 'uppercase' }}>{label}</div>
+            <div className="text-xs" style={{ color: 'var(--success-600)' }}><Plus size={10} /> {toCreate} baru</div>
+            <div className="text-xs text-muted">{existing} sudah ada</div>
+            {skipped > 0 && <div className="text-xs" style={{ color: 'var(--warning-600)' }}>{skipped} dilewati</div>}
         </div>
     )
-}
-
-const actionBtnStyle = {
-    display: 'inline-flex', alignItems: 'center', gap: 6, padding: '8px 16px',
-    borderRadius: 8, border: 'none', color: '#fff', cursor: 'pointer', fontWeight: 600,
-    fontSize: 13, transition: 'all 0.15s'
 }
 
 export default PresetDeploy

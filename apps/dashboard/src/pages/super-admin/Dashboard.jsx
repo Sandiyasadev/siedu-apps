@@ -93,7 +93,7 @@ function SADashboard() {
                         <div style={{ display: 'flex', gap: 'var(--space-3)', flexWrap: 'wrap' }}>
                             <a href="/sa/users" className="btn btn-secondary"><UserPlus size={16} /> Tambah User</a>
                             <a href="/sa/workspaces" className="btn btn-secondary"><Plus size={16} /> Tambah Workspace</a>
-                            <a href="/sa/overview" className="btn btn-secondary"><Zap size={16} /> Bootstrap Presets</a>
+                            <a href="/sa/preset-editor" className="btn btn-secondary"><Zap size={16} /> Bootstrap Presets</a>
                         </div>
                     </div>
 
@@ -118,16 +118,16 @@ function SADashboard() {
                             <div className="card-body" style={{ padding: 'var(--space-4) var(--space-5)' }}>
                                 <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-3)', marginBottom: 'var(--space-3)' }}>
                                     <BookOpen size={18} style={{ color: 'var(--primary-600)' }} />
-                                    <span style={{ fontWeight: 600, fontSize: 'var(--font-size-sm)' }}>Presets</span>
+                                    <span style={{ fontWeight: 600, fontSize: 'var(--font-size-sm)' }}>Preset Bundles</span>
                                 </div>
                                 <div style={{ display: 'flex', gap: 'var(--space-4)' }}>
                                     <div>
-                                        <div style={{ fontSize: 'var(--font-size-xl)', fontWeight: 700 }}>{stats?.presets?.taxonomy?.published ?? 0}</div>
-                                        <p className="text-xs text-muted">Taxonomy published</p>
+                                        <div style={{ fontSize: 'var(--font-size-xl)', fontWeight: 700 }}>{stats?.presets?.total ?? 0}</div>
+                                        <p className="text-xs text-muted">Total bundles</p>
                                     </div>
                                     <div>
-                                        <div style={{ fontSize: 'var(--font-size-xl)', fontWeight: 700 }}>{stats?.presets?.template?.published ?? 0}</div>
-                                        <p className="text-xs text-muted">Template published</p>
+                                        <div style={{ fontSize: 'var(--font-size-xl)', fontWeight: 700 }}>{stats?.presets?.published ?? 0}</div>
+                                        <p className="text-xs text-muted">Published</p>
                                     </div>
                                 </div>
                             </div>
