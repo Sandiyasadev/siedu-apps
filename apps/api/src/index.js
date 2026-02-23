@@ -19,6 +19,7 @@ const internalRoutes = require('./routes/internal');
 const templateRoutes = require('./routes/templates');
 const templateTaxonomyRoutes = require('./routes/templateTaxonomy');
 const mediaRoutes = require('./routes/media');
+const adminRoutes = require('./routes/admin');
 
 // Import middleware
 const { errorHandler } = require('./middleware/errorHandler');
@@ -78,6 +79,7 @@ app.use('/v1/kb', authenticate, kbRoutes);
 app.use('/v1/conversations', authenticate, conversationRoutes);
 app.use('/v1/templates', authenticate, templateRoutes);
 app.use('/v1/template-taxonomy', authenticate, templateTaxonomyRoutes);
+app.use('/v1/admin', adminRoutes);
 app.use('/v1/media', mediaRoutes);  // Media proxy (auth inside route)
 app.use('/v1/internal', internalRoutes);  // n8n internal - API key auth
 app.use('/v1/hooks', hookRoutes);

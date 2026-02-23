@@ -1,7 +1,7 @@
 const express = require('express');
 const mime = require('mime-types');
 const { asyncHandler } = require('../middleware/errorHandler');
-const { authenticate } = require('../middleware/auth');
+const { authenticate, getEffectiveWorkspaceId } = require('../middleware/auth');
 const { getFileStream, getFileStat, MEDIA_PREFIX } = require('../utils/storage');
 const { parseMediaContent } = require('../services/mediaService');
 
@@ -30,7 +30,7 @@ router.get('/:year/:month/:filename', asyncHandler(async (req, res) => {
          JOIN bots b ON b.id = c.bot_id
          WHERE m.content LIKE $1 AND b.workspace_id = $2
          LIMIT 1`,
-        [`%${pathKey}%`, req.user.workspace_id]
+        [`%${pathKey}%`, getEffectiveWorkspaceId(req)]
     );
 
     if (ownerCheck.rows.length === 0) {

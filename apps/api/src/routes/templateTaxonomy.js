@@ -3,7 +3,7 @@ const router = express.Router();
 const { query } = require('../utils/db');
 const { delByPattern } = require('../utils/cache');
 const asyncHandler = require('../middleware/asyncHandler');
-const { requireRole } = require('../middleware/auth');
+const { requireRole, getEffectiveWorkspaceId } = require('../middleware/auth');
 const { seedDefaultTemplateTaxonomyForBot } = require('../services/templateTaxonomyDefaults');
 
 const parseBool = (value) => {
@@ -66,7 +66,7 @@ router.get('/', asyncHandler(async (req, res) => {
         return res.status(400).json({ error: 'bot_id is required' });
     }
 
-    const bot = await assertBotInWorkspace(bot_id, req.user.workspace_id);
+    const bot = await assertBotInWorkspace(bot_id, getEffectiveWorkspaceId(req));
     if (!bot) {
         return res.status(404).json({ error: 'Bot not found' });
     }
@@ -156,7 +156,7 @@ router.post('/apply-default', requireRole('admin'), asyncHandler(async (req, res
         return res.status(400).json({ error: 'Invalid mode. Use skip_existing or reactivate_existing' });
     }
 
-    const bot = await assertBotInWorkspace(bot_id, req.user.workspace_id);
+    const bot = await assertBotInWorkspace(bot_id, getEffectiveWorkspaceId(req));
     if (!bot) {
         return res.status(404).json({ error: 'Bot not found' });
     }
@@ -183,7 +183,7 @@ router.post('/categories', requireRole('admin'), asyncHandler(async (req, res) =
         return res.status(400).json({ error: 'bot_id, key, and label are required' });
     }
 
-    const bot = await assertBotInWorkspace(bot_id, req.user.workspace_id);
+    const bot = await assertBotInWorkspace(bot_id, getEffectiveWorkspaceId(req));
     if (!bot) {
         return res.status(404).json({ error: 'Bot not found' });
     }
@@ -220,7 +220,7 @@ router.patch('/categories/:id', requireRole('admin'), asyncHandler(async (req, r
         JOIN bots b ON b.id = c.bot_id
         WHERE c.id = $1 AND b.workspace_id = $2
         `,
-        [req.params.id, req.user.workspace_id]
+        [req.params.id, getEffectiveWorkspaceId(req)]
     );
 
     if (check.rows.length === 0) {
@@ -280,7 +280,7 @@ router.delete('/categories/:id', requireRole('admin'), asyncHandler(async (req, 
         JOIN bots b ON b.id = c.bot_id
         WHERE c.id = $1 AND b.workspace_id = $2
         `,
-        [req.params.id, req.user.workspace_id]
+        [req.params.id, getEffectiveWorkspaceId(req)]
     );
 
     if (check.rows.length === 0) {
@@ -338,7 +338,7 @@ router.post('/subcategories', requireRole('admin'), asyncHandler(async (req, res
         return res.status(400).json({ error: 'strategy_pool must be an array when provided' });
     }
 
-    const bot = await assertBotInWorkspace(bot_id, req.user.workspace_id);
+    const bot = await assertBotInWorkspace(bot_id, getEffectiveWorkspaceId(req));
     if (!bot) {
         return res.status(404).json({ error: 'Bot not found' });
     }
@@ -393,7 +393,7 @@ router.patch('/subcategories/:id', requireRole('admin'), asyncHandler(async (req
         JOIN bots b ON b.id = s.bot_id
         WHERE s.id = $1 AND b.workspace_id = $2
         `,
-        [req.params.id, req.user.workspace_id]
+        [req.params.id, getEffectiveWorkspaceId(req)]
     );
 
     if (check.rows.length === 0) {
@@ -498,7 +498,7 @@ router.delete('/subcategories/:id', requireRole('admin'), asyncHandler(async (re
         JOIN bots b ON b.id = s.bot_id
         WHERE s.id = $1 AND b.workspace_id = $2
         `,
-        [req.params.id, req.user.workspace_id]
+        [req.params.id, getEffectiveWorkspaceId(req)]
     );
 
     if (check.rows.length === 0) {

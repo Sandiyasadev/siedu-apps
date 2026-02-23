@@ -3,7 +3,7 @@ const multer = require('multer');
 const { v4: uuidv4 } = require('uuid');
 const { query } = require('../utils/db');
 const { uploadFile, getPresignedUploadUrl, deleteFile } = require('../utils/storage');
-const { authenticate } = require('../middleware/auth');
+const { authenticate, getEffectiveWorkspaceId } = require('../middleware/auth');
 const asyncHandler = require('../middleware/asyncHandler');
 const { uploadLimiter } = require('../middleware/rateLimiter');
 
@@ -44,7 +44,7 @@ router.get('/sources', asyncHandler(async (req, res) => {
     // Verify bot belongs to user's workspace
     const botCheck = await query(
         'SELECT id FROM bots WHERE id = $1 AND workspace_id = $2',
-        [bot_id, req.user.workspace_id]
+        [bot_id, getEffectiveWorkspaceId(req)]
     );
 
     if (botCheck.rows.length === 0) {
@@ -78,7 +78,7 @@ router.post('/upload', uploadLimiter, upload.single('file'), asyncHandler(async 
     // Verify bot belongs to user's workspace
     const botCheck = await query(
         'SELECT id, n8n_config FROM bots WHERE id = $1 AND workspace_id = $2',
-        [bot_id, req.user.workspace_id]
+        [bot_id, getEffectiveWorkspaceId(req)]
     );
 
     if (botCheck.rows.length === 0) {
@@ -144,7 +144,7 @@ router.get('/upload/presigned', asyncHandler(async (req, res) => {
     // Verify bot belongs to user's workspace
     const botCheck = await query(
         'SELECT id FROM bots WHERE id = $1 AND workspace_id = $2',
-        [bot_id, req.user.workspace_id]
+        [bot_id, getEffectiveWorkspaceId(req)]
     );
 
     if (botCheck.rows.length === 0) {
@@ -178,7 +178,7 @@ router.delete('/sources/:id', asyncHandler(async (req, res) => {
         return res.status(404).json({ error: 'Source not found' });
     }
 
-    if (sourceResult.rows[0].workspace_id !== req.user.workspace_id) {
+    if (sourceResult.rows[0].workspace_id !== getEffectiveWorkspaceId(req)) {
         return res.status(403).json({ error: 'Access denied' });
     }
 
@@ -212,7 +212,7 @@ router.delete('/sources/:id', asyncHandler(async (req, res) => {
     await query(
         `INSERT INTO audit_log (workspace_id, actor, action, entity_type, entity_id)
      VALUES ($1, $2, 'kb_delete', 'kb_source', $3)`,
-        [req.user.workspace_id, req.user.email, req.params.id]
+        [getEffectiveWorkspaceId(req), req.user.email, req.params.id]
     );
 
     res.json({ success: true, message: 'Source deleted' });

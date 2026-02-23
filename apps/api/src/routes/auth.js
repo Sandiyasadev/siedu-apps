@@ -47,7 +47,7 @@ router.post('/login', authLimiter, asyncHandler(async (req, res) => {
 
 // ============================================
 // PUBLIC REGISTRATION DISABLED FOR SECURITY
-// Use: docker-compose exec api node scripts/create-admin.js <email> <password> [name]
+// Use: docker-compose exec api node scripts/create-admin.js <email> <password> [name] [role]
 // ============================================
 // router.post('/register', asyncHandler(async (req, res) => { ... }));
 router.post('/register', (req, res) => {

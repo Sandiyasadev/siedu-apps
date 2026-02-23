@@ -7,6 +7,131 @@ if (!JWT_SECRET) {
   process.exit(1);
 }
 
+const WORKSPACE_OVERRIDE_HEADER = "x-workspace-id";
+
+const buildWorkspaceContext = ({
+  actorWorkspaceId,
+  effectiveWorkspaceId,
+  overrideRequested = false,
+  overrideApplied = false,
+  overrideWorkspace = null,
+}) => ({
+  actorWorkspaceId,
+  effectiveWorkspaceId,
+  overrideRequested,
+  overrideApplied,
+  overrideWorkspace,
+});
+
+const normalizeWorkspaceOverrideHeader = (value) => {
+  if (Array.isArray(value)) {
+    return normalizeWorkspaceOverrideHeader(value[0]);
+  }
+  if (value === undefined || value === null) return null;
+  const trimmed = String(value).trim();
+  return trimmed === "" ? null : trimmed;
+};
+
+const resolveEffectiveWorkspace = async (req) => {
+  const actorWorkspaceId = req.user?.workspace_id || null;
+  const requestedWorkspaceId = normalizeWorkspaceOverrideHeader(
+    req.headers?.[WORKSPACE_OVERRIDE_HEADER],
+  );
+
+  if (!requestedWorkspaceId) {
+    return buildWorkspaceContext({
+      actorWorkspaceId,
+      effectiveWorkspaceId: actorWorkspaceId,
+    });
+  }
+
+  if (!req.user) {
+    const error = new Error("Not authenticated");
+    error.status = 401;
+    throw error;
+  }
+
+  if (req.user.role !== "super_admin") {
+    const error = new Error("Workspace override is only allowed for super_admin");
+    error.status = 403;
+    error.code = "WORKSPACE_OVERRIDE_FORBIDDEN";
+    throw error;
+  }
+
+  const workspaceResult = await query(
+    "SELECT id, name, slug FROM workspaces WHERE id = $1 LIMIT 1",
+    [requestedWorkspaceId],
+  );
+
+  if (workspaceResult.rows.length === 0) {
+    const error = new Error("Workspace override target not found");
+    error.status = 404;
+    error.code = "WORKSPACE_OVERRIDE_NOT_FOUND";
+    throw error;
+  }
+
+  const workspace = workspaceResult.rows[0];
+  const overrideApplied = workspace.id !== actorWorkspaceId;
+
+  return buildWorkspaceContext({
+    actorWorkspaceId,
+    effectiveWorkspaceId: workspace.id,
+    overrideRequested: true,
+    overrideApplied,
+    overrideWorkspace: workspace,
+  });
+};
+
+const getEffectiveWorkspaceId = (req) => (
+  req?.effectiveWorkspaceId || req?.workspaceContext?.effectiveWorkspaceId || req?.user?.workspace_id || null
+);
+
+const logWorkspaceOverrideAccess = async (req) => {
+  const ctx = req?.workspaceContext;
+  if (!req?.user || !ctx?.overrideRequested || !ctx?.overrideApplied || !ctx?.effectiveWorkspaceId) {
+    return;
+  }
+  const method = String(req.method || "").toUpperCase();
+  if (["GET", "HEAD", "OPTIONS"].includes(method)) {
+    return;
+  }
+
+  try {
+    await query(
+      `
+      INSERT INTO audit_log (
+        workspace_id, actor, action, entity_type, entity_id, metadata
+      )
+      VALUES ($1, $2, $3, $4, $5, $6::jsonb)
+      `,
+      [
+        ctx.effectiveWorkspaceId,
+        req.user.email || req.user.id || null,
+        "super_admin_workspace_override_access",
+        "http_request",
+        `${method || "UNKNOWN"} ${req.originalUrl || req.url || "/"}`,
+        JSON.stringify({
+          actor_user_id: req.user.id,
+          actor_role: req.user.role,
+          actor_workspace_id: ctx.actorWorkspaceId || null,
+          target_workspace_id: ctx.effectiveWorkspaceId,
+          target_workspace_name: ctx.overrideWorkspace?.name || null,
+          target_workspace_slug: ctx.overrideWorkspace?.slug || null,
+          method: method || null,
+          path: req.originalUrl || req.url || null,
+        }),
+      ],
+    );
+  } catch (auditError) {
+    console.error("[Auth] Failed to write workspace override audit log:", {
+      error: auditError.message,
+      actor_user_id: req.user.id,
+      target_workspace_id: ctx.effectiveWorkspaceId,
+      path: req.originalUrl || req.url || null,
+    });
+  }
+};
+
 // Authenticate JWT token
 const authenticate = async (req, res, next) => {
   try {
@@ -30,6 +155,12 @@ const authenticate = async (req, res, next) => {
     }
 
     req.user = result.rows[0];
+
+    const workspaceContext = await resolveEffectiveWorkspace(req);
+    req.workspaceContext = workspaceContext;
+    req.effectiveWorkspaceId = workspaceContext.effectiveWorkspaceId;
+    await logWorkspaceOverrideAccess(req);
+
     next();
   } catch (error) {
     if (error.name === "JsonWebTokenError") {
@@ -37,6 +168,12 @@ const authenticate = async (req, res, next) => {
     }
     if (error.name === "TokenExpiredError") {
       return res.status(401).json({ error: "Token expired" });
+    }
+    if (error.status) {
+      return res.status(error.status).json({
+        error: error.message,
+        code: error.code || undefined,
+      });
     }
     next(error);
   }
@@ -47,6 +184,9 @@ const requireRole = (...roles) => {
   return (req, res, next) => {
     if (!req.user) {
       return res.status(401).json({ error: "Not authenticated" });
+    }
+    if (req.user.role === "super_admin") {
+      return next();
     }
     if (!roles.includes(req.user.role)) {
       return res.status(403).json({ error: "Insufficient permissions" });
@@ -68,4 +208,6 @@ module.exports = {
   authenticate,
   requireRole,
   generateToken,
+  resolveEffectiveWorkspace,
+  getEffectiveWorkspaceId,
 };

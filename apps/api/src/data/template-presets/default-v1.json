@@ -5,7 +5,1112 @@
     "name": "Default Master Templates V1",
     "mode": "taxonomy-driven",
     "source": "generator-review-json",
-    "note": "Placeholder preset file. Replace templates[] with reviewed generator output templates before using Apply Default Templates in production."
+    "imported_at": "2026-02-23T05:20:01.959Z",
+    "source_generator_meta": {
+      "generator": "Template Generator V4.2 — Taxonomy-Driven (Review + JSON)",
+      "mode": "taxonomy-driven",
+      "gaya_bahasa": "casual-whatsapp (santai, pakai emoji, singkatan)",
+      "intent_filter": null,
+      "taxonomy_source_counts": {
+        "db": 29
+      },
+      "total_templates": 60,
+      "total_intents": 29,
+      "intents_needing_manual_review": 28,
+      "total_rejected_drafts": 68,
+      "total_warnings": 34,
+      "total_opener_violations": 0,
+      "average_quality_score": 79,
+      "generated_at": "2026-02-23T03:26:09.119Z",
+      "source_bot_id": "08860042-5426-449d-ad48-145ddc741373"
+    },
+    "import_stats": {
+      "total_input_templates": 60,
+      "imported_templates": 60,
+      "skipped_invalid": 0,
+      "skipped_duplicate": 0,
+      "auto_inactive_marked": 6
+    },
+    "note": "Generated from template-generator JSON. Templates remain editable after apply to each bot."
   },
-  "templates": []
+  "quality_report": [
+    {
+      "intent": "conversion.book_appointment",
+      "label": "Book Appointment",
+      "category": "conversion",
+      "reply_mode": "continuation",
+      "greeting_policy": "forbidden",
+      "taxonomy_source": "db",
+      "target": 4,
+      "generated": 6,
+      "parsed": 6,
+      "final": 4,
+      "shortage": 0,
+      "rejected": 1,
+      "warnings": 4,
+      "opener_violations": 0,
+      "parse_ok": true,
+      "quality_score": 94,
+      "needs_manual_review": true,
+      "issues": [
+        "rejected:1",
+        "warnings:4"
+      ]
+    },
+    {
+      "intent": "conversion.confirm",
+      "label": "Confirm",
+      "category": "conversion",
+      "reply_mode": "continuation",
+      "greeting_policy": "forbidden",
+      "taxonomy_source": "db",
+      "target": 3,
+      "generated": 5,
+      "parsed": 5,
+      "final": 0,
+      "shortage": 3,
+      "rejected": 5,
+      "warnings": 0,
+      "opener_violations": 0,
+      "parse_ok": true,
+      "quality_score": 54,
+      "needs_manual_review": true,
+      "issues": [
+        "shortage:3",
+        "rejected:5"
+      ]
+    },
+    {
+      "intent": "conversion.follow_up_ghosting",
+      "label": "Follow Up Ghosting",
+      "category": "conversion",
+      "reply_mode": "opening",
+      "greeting_policy": "optional_short",
+      "taxonomy_source": "db",
+      "target": 4,
+      "generated": 6,
+      "parsed": 6,
+      "final": 3,
+      "shortage": 1,
+      "rejected": 3,
+      "warnings": 1,
+      "opener_violations": 0,
+      "parse_ok": true,
+      "quality_score": 81,
+      "needs_manual_review": true,
+      "issues": [
+        "shortage:1",
+        "rejected:3",
+        "warnings:1"
+      ]
+    },
+    {
+      "intent": "conversion.payment_instruction",
+      "label": "Payment Instruction",
+      "category": "conversion",
+      "reply_mode": "continuation",
+      "greeting_policy": "forbidden",
+      "taxonomy_source": "db",
+      "target": 3,
+      "generated": 5,
+      "parsed": 5,
+      "final": 0,
+      "shortage": 3,
+      "rejected": 5,
+      "warnings": 0,
+      "opener_violations": 0,
+      "parse_ok": true,
+      "quality_score": 54,
+      "needs_manual_review": true,
+      "issues": [
+        "shortage:3",
+        "rejected:5"
+      ]
+    },
+    {
+      "intent": "conversion.soft",
+      "label": "Soft CTA",
+      "category": "conversion",
+      "reply_mode": "continuation",
+      "greeting_policy": "forbidden",
+      "taxonomy_source": "db",
+      "target": 3,
+      "generated": 5,
+      "parsed": 5,
+      "final": 3,
+      "shortage": 0,
+      "rejected": 0,
+      "warnings": 3,
+      "opener_violations": 0,
+      "parse_ok": true,
+      "quality_score": 97,
+      "needs_manual_review": true,
+      "issues": [
+        "warnings:3"
+      ]
+    },
+    {
+      "intent": "discovery.custom_request",
+      "label": "Custom Request",
+      "category": "discovery",
+      "reply_mode": "continuation",
+      "greeting_policy": "forbidden",
+      "taxonomy_source": "db",
+      "target": 3,
+      "generated": 5,
+      "parsed": 5,
+      "final": 0,
+      "shortage": 3,
+      "rejected": 5,
+      "warnings": 0,
+      "opener_violations": 0,
+      "parse_ok": true,
+      "quality_score": 54,
+      "needs_manual_review": true,
+      "issues": [
+        "shortage:3",
+        "rejected:5"
+      ]
+    },
+    {
+      "intent": "discovery.facilities_parking",
+      "label": "Facilities Parking",
+      "category": "discovery",
+      "reply_mode": "continuation",
+      "greeting_policy": "forbidden",
+      "taxonomy_source": "db",
+      "target": 3,
+      "generated": 5,
+      "parsed": 5,
+      "final": 3,
+      "shortage": 0,
+      "rejected": 2,
+      "warnings": 0,
+      "opener_violations": 0,
+      "parse_ok": true,
+      "quality_score": 96,
+      "needs_manual_review": true,
+      "issues": [
+        "rejected:2"
+      ]
+    },
+    {
+      "intent": "discovery.promo_inquiry",
+      "label": "Promo Inquiry",
+      "category": "discovery",
+      "reply_mode": "continuation",
+      "greeting_policy": "forbidden",
+      "taxonomy_source": "db",
+      "target": 4,
+      "generated": 6,
+      "parsed": 6,
+      "final": 1,
+      "shortage": 3,
+      "rejected": 5,
+      "warnings": 1,
+      "opener_violations": 0,
+      "parse_ok": true,
+      "quality_score": 53,
+      "needs_manual_review": true,
+      "issues": [
+        "shortage:3",
+        "rejected:5",
+        "warnings:1"
+      ]
+    },
+    {
+      "intent": "discovery.service_catalog",
+      "label": "Service Catalog",
+      "category": "discovery",
+      "reply_mode": "continuation",
+      "greeting_policy": "forbidden",
+      "taxonomy_source": "db",
+      "target": 3,
+      "generated": 5,
+      "parsed": 5,
+      "final": 2,
+      "shortage": 1,
+      "rejected": 3,
+      "warnings": 1,
+      "opener_violations": 0,
+      "parse_ok": true,
+      "quality_score": 81,
+      "needs_manual_review": true,
+      "issues": [
+        "shortage:1",
+        "rejected:3",
+        "warnings:1"
+      ]
+    },
+    {
+      "intent": "discovery.service_detail",
+      "label": "Service Detail",
+      "category": "discovery",
+      "reply_mode": "continuation",
+      "greeting_policy": "forbidden",
+      "taxonomy_source": "db",
+      "target": 4,
+      "generated": 6,
+      "parsed": 6,
+      "final": 0,
+      "shortage": 4,
+      "rejected": 6,
+      "warnings": 0,
+      "opener_violations": 0,
+      "parse_ok": true,
+      "quality_score": 40,
+      "needs_manual_review": true,
+      "issues": [
+        "shortage:4",
+        "rejected:6"
+      ]
+    },
+    {
+      "intent": "discovery.service_requirement",
+      "label": "Service Requirement",
+      "category": "discovery",
+      "reply_mode": "continuation",
+      "greeting_policy": "forbidden",
+      "taxonomy_source": "db",
+      "target": 3,
+      "generated": 5,
+      "parsed": 5,
+      "final": 0,
+      "shortage": 3,
+      "rejected": 5,
+      "warnings": 0,
+      "opener_violations": 0,
+      "parse_ok": true,
+      "quality_score": 54,
+      "needs_manual_review": true,
+      "issues": [
+        "shortage:3",
+        "rejected:5"
+      ]
+    },
+    {
+      "intent": "discovery.staff_profile",
+      "label": "Staff Profile",
+      "category": "discovery",
+      "reply_mode": "continuation",
+      "greeting_policy": "forbidden",
+      "taxonomy_source": "db",
+      "target": 3,
+      "generated": 5,
+      "parsed": 5,
+      "final": 0,
+      "shortage": 3,
+      "rejected": 5,
+      "warnings": 0,
+      "opener_violations": 0,
+      "parse_ok": true,
+      "quality_score": 54,
+      "needs_manual_review": true,
+      "issues": [
+        "shortage:3",
+        "rejected:5"
+      ]
+    },
+    {
+      "intent": "engagement.greeting_new",
+      "label": "Greeting New",
+      "category": "engagement",
+      "reply_mode": "opening",
+      "greeting_policy": "required",
+      "taxonomy_source": "db",
+      "target": 3,
+      "generated": 5,
+      "parsed": 5,
+      "final": 3,
+      "shortage": 0,
+      "rejected": 0,
+      "warnings": 1,
+      "opener_violations": 0,
+      "parse_ok": true,
+      "quality_score": 99,
+      "needs_manual_review": true,
+      "issues": [
+        "warnings:1"
+      ]
+    },
+    {
+      "intent": "engagement.greeting_return",
+      "label": "Greeting Return",
+      "category": "engagement",
+      "reply_mode": "opening",
+      "greeting_policy": "required",
+      "taxonomy_source": "db",
+      "target": 3,
+      "generated": 5,
+      "parsed": 5,
+      "final": 3,
+      "shortage": 0,
+      "rejected": 0,
+      "warnings": 1,
+      "opener_violations": 0,
+      "parse_ok": true,
+      "quality_score": 99,
+      "needs_manual_review": true,
+      "issues": [
+        "warnings:1"
+      ]
+    },
+    {
+      "intent": "engagement.thank_you_closing",
+      "label": "Thank You Closing",
+      "category": "engagement",
+      "reply_mode": "continuation",
+      "greeting_policy": "optional_short",
+      "taxonomy_source": "db",
+      "target": 3,
+      "generated": 5,
+      "parsed": 5,
+      "final": 3,
+      "shortage": 0,
+      "rejected": 0,
+      "warnings": 1,
+      "opener_violations": 0,
+      "parse_ok": true,
+      "quality_score": 99,
+      "needs_manual_review": true,
+      "issues": [
+        "warnings:1"
+      ]
+    },
+    {
+      "intent": "engagement.time_inquiry",
+      "label": "Time Inquiry",
+      "category": "engagement",
+      "reply_mode": "mixed",
+      "greeting_policy": "optional_short",
+      "taxonomy_source": "db",
+      "target": 3,
+      "generated": 5,
+      "parsed": 5,
+      "final": 3,
+      "shortage": 0,
+      "rejected": 0,
+      "warnings": 0,
+      "opener_violations": 0,
+      "parse_ok": true,
+      "quality_score": 100,
+      "needs_manual_review": false,
+      "issues": []
+    },
+    {
+      "intent": "evaluation.objection_authority",
+      "label": "Objection Authority",
+      "category": "evaluation",
+      "reply_mode": "continuation",
+      "greeting_policy": "forbidden",
+      "taxonomy_source": "db",
+      "target": 3,
+      "generated": 5,
+      "parsed": 5,
+      "final": 3,
+      "shortage": 0,
+      "rejected": 0,
+      "warnings": 1,
+      "opener_violations": 0,
+      "parse_ok": true,
+      "quality_score": 99,
+      "needs_manual_review": true,
+      "issues": [
+        "warnings:1"
+      ]
+    },
+    {
+      "intent": "evaluation.objection_compare",
+      "label": "Objection Compare",
+      "category": "evaluation",
+      "reply_mode": "continuation",
+      "greeting_policy": "forbidden",
+      "taxonomy_source": "db",
+      "target": 3,
+      "generated": 5,
+      "parsed": 5,
+      "final": 3,
+      "shortage": 0,
+      "rejected": 0,
+      "warnings": 1,
+      "opener_violations": 0,
+      "parse_ok": true,
+      "quality_score": 99,
+      "needs_manual_review": true,
+      "issues": [
+        "warnings:1"
+      ]
+    },
+    {
+      "intent": "evaluation.objection_price",
+      "label": "Objection Price",
+      "category": "evaluation",
+      "reply_mode": "continuation",
+      "greeting_policy": "forbidden",
+      "taxonomy_source": "db",
+      "target": 4,
+      "generated": 6,
+      "parsed": 6,
+      "final": 4,
+      "shortage": 0,
+      "rejected": 1,
+      "warnings": 5,
+      "opener_violations": 0,
+      "parse_ok": true,
+      "quality_score": 93,
+      "needs_manual_review": true,
+      "issues": [
+        "rejected:1",
+        "warnings:5"
+      ]
+    },
+    {
+      "intent": "evaluation.objection_risk",
+      "label": "Objection Risk",
+      "category": "evaluation",
+      "reply_mode": "continuation",
+      "greeting_policy": "forbidden",
+      "taxonomy_source": "db",
+      "target": 4,
+      "generated": 6,
+      "parsed": 6,
+      "final": 0,
+      "shortage": 4,
+      "rejected": 6,
+      "warnings": 0,
+      "opener_violations": 0,
+      "parse_ok": true,
+      "quality_score": 40,
+      "needs_manual_review": true,
+      "issues": [
+        "shortage:4",
+        "rejected:6"
+      ]
+    },
+    {
+      "intent": "evaluation.objection_urgency",
+      "label": "Objection Urgency",
+      "category": "evaluation",
+      "reply_mode": "continuation",
+      "greeting_policy": "forbidden",
+      "taxonomy_source": "db",
+      "target": 3,
+      "generated": 5,
+      "parsed": 5,
+      "final": 3,
+      "shortage": 0,
+      "rejected": 0,
+      "warnings": 2,
+      "opener_violations": 0,
+      "parse_ok": true,
+      "quality_score": 98,
+      "needs_manual_review": true,
+      "issues": [
+        "warnings:2"
+      ]
+    },
+    {
+      "intent": "evaluation.pricing_inquiry",
+      "label": "Pricing Inquiry",
+      "category": "evaluation",
+      "reply_mode": "continuation",
+      "greeting_policy": "forbidden",
+      "taxonomy_source": "db",
+      "target": 4,
+      "generated": 6,
+      "parsed": 6,
+      "final": 3,
+      "shortage": 1,
+      "rejected": 3,
+      "warnings": 1,
+      "opener_violations": 0,
+      "parse_ok": true,
+      "quality_score": 81,
+      "needs_manual_review": true,
+      "issues": [
+        "shortage:1",
+        "rejected:3",
+        "warnings:1"
+      ]
+    },
+    {
+      "intent": "fallback.human_handoff",
+      "label": "Human Handoff",
+      "category": "fallback",
+      "reply_mode": "continuation",
+      "greeting_policy": "forbidden",
+      "taxonomy_source": "db",
+      "target": 3,
+      "generated": 5,
+      "parsed": 5,
+      "final": 3,
+      "shortage": 0,
+      "rejected": 0,
+      "warnings": 3,
+      "opener_violations": 0,
+      "parse_ok": true,
+      "quality_score": 97,
+      "needs_manual_review": true,
+      "issues": [
+        "warnings:3"
+      ]
+    },
+    {
+      "intent": "fallback.out_of_scope",
+      "label": "Out Of Scope",
+      "category": "fallback",
+      "reply_mode": "continuation",
+      "greeting_policy": "forbidden",
+      "taxonomy_source": "db",
+      "target": 3,
+      "generated": 5,
+      "parsed": 5,
+      "final": 0,
+      "shortage": 3,
+      "rejected": 5,
+      "warnings": 0,
+      "opener_violations": 0,
+      "parse_ok": true,
+      "quality_score": 54,
+      "needs_manual_review": true,
+      "issues": [
+        "shortage:3",
+        "rejected:5"
+      ]
+    },
+    {
+      "intent": "fallback.spam_random",
+      "label": "Spam Random",
+      "category": "fallback",
+      "reply_mode": "continuation",
+      "greeting_policy": "forbidden",
+      "taxonomy_source": "db",
+      "target": 4,
+      "generated": 6,
+      "parsed": 6,
+      "final": 4,
+      "shortage": 0,
+      "rejected": 0,
+      "warnings": 4,
+      "opener_violations": 0,
+      "parse_ok": true,
+      "quality_score": 96,
+      "needs_manual_review": true,
+      "issues": [
+        "warnings:4"
+      ]
+    },
+    {
+      "intent": "retention.complaint_handling",
+      "label": "Complaint Handling",
+      "category": "retention",
+      "reply_mode": "continuation",
+      "greeting_policy": "forbidden",
+      "taxonomy_source": "db",
+      "target": 4,
+      "generated": 6,
+      "parsed": 6,
+      "final": 4,
+      "shortage": 0,
+      "rejected": 0,
+      "warnings": 1,
+      "opener_violations": 0,
+      "parse_ok": true,
+      "quality_score": 99,
+      "needs_manual_review": true,
+      "issues": [
+        "warnings:1"
+      ]
+    },
+    {
+      "intent": "retention.progress_inquiry",
+      "label": "Progress Inquiry",
+      "category": "retention",
+      "reply_mode": "continuation",
+      "greeting_policy": "forbidden",
+      "taxonomy_source": "db",
+      "target": 3,
+      "generated": 5,
+      "parsed": 5,
+      "final": 0,
+      "shortage": 3,
+      "rejected": 5,
+      "warnings": 0,
+      "opener_violations": 0,
+      "parse_ok": true,
+      "quality_score": 54,
+      "needs_manual_review": true,
+      "issues": [
+        "shortage:3",
+        "rejected:5"
+      ]
+    },
+    {
+      "intent": "retention.reschedule",
+      "label": "Reschedule",
+      "category": "retention",
+      "reply_mode": "continuation",
+      "greeting_policy": "forbidden",
+      "taxonomy_source": "db",
+      "target": 3,
+      "generated": 5,
+      "parsed": 5,
+      "final": 2,
+      "shortage": 1,
+      "rejected": 3,
+      "warnings": 0,
+      "opener_violations": 0,
+      "parse_ok": true,
+      "quality_score": 82,
+      "needs_manual_review": true,
+      "issues": [
+        "shortage:1",
+        "rejected:3"
+      ]
+    },
+    {
+      "intent": "retention.technical_issue",
+      "label": "Technical Issue",
+      "category": "retention",
+      "reply_mode": "continuation",
+      "greeting_policy": "forbidden",
+      "taxonomy_source": "db",
+      "target": 3,
+      "generated": 5,
+      "parsed": 5,
+      "final": 3,
+      "shortage": 0,
+      "rejected": 0,
+      "warnings": 3,
+      "opener_violations": 0,
+      "parse_ok": true,
+      "quality_score": 97,
+      "needs_manual_review": true,
+      "issues": [
+        "warnings:3"
+      ]
+    }
+  ],
+  "templates": [
+    {
+      "name": "Template 1",
+      "content": "Saya bisa membantu Anda membuat janji temu. Apa tanggal dan waktu yang Anda inginkan?",
+      "category": "conversion",
+      "sub_category": "conversion.book_appointment",
+      "is_active": true
+    },
+    {
+      "name": "Template 2",
+      "content": "Untuk konfirmasi janji temu, bisakah Anda memberikan nama lengkap dan nomor kontak Anda?",
+      "category": "conversion",
+      "sub_category": "conversion.book_appointment",
+      "is_active": true
+    },
+    {
+      "name": "Template 3",
+      "content": "Jenis layanan apa yang ingin Anda pesan? Kami menyediakan konsultasi, check-up, dan perawatan.",
+      "category": "conversion",
+      "sub_category": "conversion.book_appointment",
+      "is_active": true
+    },
+    {
+      "name": "Template 5",
+      "content": "Apakah ada catatan khusus atau pertanyaan kesehatan yang ingin Anda sampaikan sebelum janji temu?",
+      "category": "conversion",
+      "sub_category": "conversion.book_appointment",
+      "is_active": true
+    },
+    {
+      "name": "Template 1",
+      "content": "Halo! Kami notice belum ada update dari Anda mengenai penawaran kami. Ada yang bisa kami bantu?",
+      "category": "conversion",
+      "sub_category": "conversion.follow_up_ghosting",
+      "is_active": false
+    },
+    {
+      "name": "Template 5",
+      "content": "Selamat pagi! Melihat timeline Anda, sepertinya penawaran ini sangat cocok. Kapan bisa kita set meeting untuk diskusi lebih detail?",
+      "category": "conversion",
+      "sub_category": "conversion.follow_up_ghosting",
+      "is_active": false
+    },
+    {
+      "name": "Template 6",
+      "content": "Hi! Terima kasih sudah lihat proposal kami. Jika ada yang kurang jelas atau ada alternatif yang Anda butuhkan, langsung saja hubungi kami yaa.",
+      "category": "conversion",
+      "sub_category": "conversion.follow_up_ghosting",
+      "is_active": false
+    },
+    {
+      "name": "Gentle Product Discovery",
+      "content": "Btw, kalau kamu tertarik eksplorasi lebih lanjut, ada beberapa pilihan yang bisa disesuaikan dengan kebutuhan kamu. Kapan saja kalau mau tau detailnya.",
+      "category": "conversion",
+      "sub_category": "conversion.soft",
+      "is_active": true
+    },
+    {
+      "name": "Low-Pressure Information Sharing",
+      "content": "Kalau penasaran gimana cara kerjanya atau ada pertanyaan lainnya, aku bisa jelasin lebih detail. Tapi no pressure sama sekali, just let me know 😊",
+      "category": "conversion",
+      "sub_category": "conversion.soft",
+      "is_active": true
+    },
+    {
+      "name": "Subtle Value Proposition",
+      "content": "Oh ya, banyak orang yang akhirnya appreciate fitur X karena bisa save waktu mereka. Mungkin relevan juga untuk kamu, siapa tau.",
+      "category": "conversion",
+      "sub_category": "conversion.soft",
+      "is_active": true
+    },
+    {
+      "name": "Template 1",
+      "content": "Kami menyediakan parkir gratis untuk semua pengunjung. Area parkir tersedia di basement level 1 dan 2, serta outdoor parking di lantai 6. Silakan gunakan aplikasi mobile kami untuk menemukan spot parkir yang tersedia secara real-time.",
+      "category": "discovery",
+      "sub_category": "discovery.facilities_parking",
+      "is_active": true
+    },
+    {
+      "name": "Template 3",
+      "content": "Fasilitas parkir kami dilengkapi dengan sistem CCTV 24 jam dan security patrol regular. Setiap kendaraan diasuransikan oleh kami selama berada di area parkir. Untuk keluhan atau laporan kehilangan, hubungi kantor security di entrance utama.",
+      "category": "discovery",
+      "sub_category": "discovery.facilities_parking",
+      "is_active": true
+    },
+    {
+      "name": "Template 4",
+      "content": "Kami menyediakan reserved parking untuk penyandang disabilitas, kendaraan listrik, dan motor. Tempat pengisian baterai EV tersedia di basement level 1 dengan 12 charging points. Motor dapat diparkir di area khusus dengan kapasitas 50 unit di lantai 7.",
+      "category": "discovery",
+      "sub_category": "discovery.facilities_parking",
+      "is_active": true
+    },
+    {
+      "name": "Template 5",
+      "content": "Adakah program loyalitas atau reward points yang bisa saya gunakan sekarang?",
+      "category": "discovery",
+      "sub_category": "discovery.promo_inquiry",
+      "is_active": true
+    },
+    {
+      "name": "Template 1",
+      "content": "Apa saja layanan yang tersedia di katalog Anda?",
+      "category": "discovery",
+      "sub_category": "discovery.service_catalog",
+      "is_active": true
+    },
+    {
+      "name": "Template 4",
+      "content": "Layanan mana yang paling relevan untuk kebutuhan saya?",
+      "category": "discovery",
+      "sub_category": "discovery.service_catalog",
+      "is_active": true
+    },
+    {
+      "name": "Template 1",
+      "content": "Halo! Selamat datang di sini. Saya senang berkenalan dengan Anda. Ada yang bisa saya bantu hari ini?",
+      "category": "engagement",
+      "sub_category": "engagement.greeting_new",
+      "is_active": true
+    },
+    {
+      "name": "Template 2",
+      "content": "Selamat pagi! Terima kasih telah bergabung dengan kami. Kami dengan senang hati siap melayani Anda. Apa yang ingin Anda ketahui?",
+      "category": "engagement",
+      "sub_category": "engagement.greeting_new",
+      "is_active": true
+    },
+    {
+      "name": "Template 3",
+      "content": "Hai, nama saya adalah assistant. Selamat datang! Saya di sini untuk membantu Anda. Mulai dari mana yang ingin kita bicarakan?",
+      "category": "engagement",
+      "sub_category": "engagement.greeting_new",
+      "is_active": true
+    },
+    {
+      "name": "Template 1",
+      "content": "Hai! Senang bertemu Anda lagi. Ada yang bisa saya bantu hari ini?",
+      "category": "engagement",
+      "sub_category": "engagement.greeting_return",
+      "is_active": true
+    },
+    {
+      "name": "Template 2",
+      "content": "Selamat datang kembali! Kami sudah menunggu Anda. Apa kabar?",
+      "category": "engagement",
+      "sub_category": "engagement.greeting_return",
+      "is_active": true
+    },
+    {
+      "name": "Template 3",
+      "content": "Halo! Senang melihat Anda kembali. Bagaimana yang bisa kami lakukan untuk Anda?",
+      "category": "engagement",
+      "sub_category": "engagement.greeting_return",
+      "is_active": true
+    },
+    {
+      "name": "Template 1",
+      "content": "Terima kasih telah meluangkan waktu untuk berbicara dengan kami. Kami sangat menghargai kepercayaan Anda dan siap membantu kapan pun dibutuhkan.",
+      "category": "engagement",
+      "sub_category": "engagement.thank_you_closing",
+      "is_active": true
+    },
+    {
+      "name": "Template 2",
+      "content": "Semoga informasi ini bermanfaat bagi Anda. Jangan ragu untuk menghubungi kami jika ada pertanyaan lain di masa depan.",
+      "category": "engagement",
+      "sub_category": "engagement.thank_you_closing",
+      "is_active": true
+    },
+    {
+      "name": "Template 3",
+      "content": "Kami berterima kasih atas kesempatan ini. Tim kami akan terus memberikan layanan terbaik untuk Anda.",
+      "category": "engagement",
+      "sub_category": "engagement.thank_you_closing",
+      "is_active": true
+    },
+    {
+      "name": "Template 1",
+      "content": "Jam berapa kami buka? Kami melayani dari jam 09:00 hingga 18:00, Senin hingga Jumat.",
+      "category": "engagement",
+      "sub_category": "engagement.time_inquiry",
+      "is_active": true
+    },
+    {
+      "name": "Template 2",
+      "content": "Hi! Waktu operasional kami adalah 09:00-18:00 (hari kerja) dan 10:00-16:00 (weekend). Ada yang bisa dibantu?",
+      "category": "engagement",
+      "sub_category": "engagement.time_inquiry",
+      "is_active": true
+    },
+    {
+      "name": "Template 3",
+      "content": "Untuk pertanyaan waktu layanan: Tim kami siap membantu pukul 08:00-20:00 setiap hari.",
+      "category": "engagement",
+      "sub_category": "engagement.time_inquiry",
+      "is_active": true
+    },
+    {
+      "name": "Template 1",
+      "content": "Saya perlu memastikan bahwa Anda adalah orang yang tepat untuk membuat keputusan ini. Siapa yang biasanya menangani persetujuan untuk keputusan seperti ini di organisasi Anda?",
+      "category": "evaluation",
+      "sub_category": "evaluation.objection_authority",
+      "is_active": true
+    },
+    {
+      "name": "Template 2",
+      "content": "Saya ingin memastikan kami berbicara dengan stakeholder yang tepat. Apakah Anda memiliki wewenang untuk memberikan persetujuan atas proposal ini, atau apakah ada pihak lain yang perlu terlibat?",
+      "category": "evaluation",
+      "sub_category": "evaluation.objection_authority",
+      "is_active": true
+    },
+    {
+      "name": "Template 3",
+      "content": "Dari pengalaman saya, keputusan semacam ini biasanya memerlukan sign-off dari beberapa departemen. Dapatkah Anda membagikan struktur keputusan di perusahaan Anda untuk hal ini?",
+      "category": "evaluation",
+      "sub_category": "evaluation.objection_authority",
+      "is_active": true
+    },
+    {
+      "name": "Template 1",
+      "content": "Saya memahami kekhawatiran Anda. Namun, dibandingkan dengan kompetitor lain, produk kami menawarkan nilai lebih dengan harga yang lebih kompetitif. Fitur-fitur unggulan kami telah terbukti meningkatkan produktivitas hingga 40% lebih baik.",
+      "category": "evaluation",
+      "sub_category": "evaluation.objection_compare",
+      "is_active": true
+    },
+    {
+      "name": "Template 2",
+      "content": "Saya setuju bahwa ada banyak pilihan di pasaran. Namun, yang membedakan kami adalah dukungan pelanggan 24/7 dan garansi uang kembali 100%. Lebih dari 95% pelanggan kami memilih untuk tetap bersama kami setelah tahun pertama.",
+      "category": "evaluation",
+      "sub_category": "evaluation.objection_compare",
+      "is_active": true
+    },
+    {
+      "name": "Template 3",
+      "content": "Pertimbangan Anda untuk membandingkan adalah langkah yang tepat. Jika kita lihat total cost of ownership selama 3 tahun, solusi kami menghemat 35% lebih banyak dibanding alternatif lainnya, termasuk biaya pelatihan dan maintenance.",
+      "category": "evaluation",
+      "sub_category": "evaluation.objection_compare",
+      "is_active": true
+    },
+    {
+      "name": "Template 1",
+      "content": "Saya memahami harga adalah pertimbangan penting. Mari saya jelaskan nilai yang Anda dapatkan dengan investasi ini. Fitur-fitur premium kami akan menghemat waktu Anda hingga 20 jam per bulan, yang setara dengan ROI dalam 3 bulan pertama.",
+      "category": "evaluation",
+      "sub_category": "evaluation.objection_price",
+      "is_active": true
+    },
+    {
+      "name": "Template 2",
+      "content": "Biaya ini mencakup dukungan 24/7, pembaruan otomatis, dan integrasi dengan sistem Anda yang ada. Jika dibandingkan dengan solusi kompetitor, kami menawarkan 35% lebih banyak fitur dengan harga yang sama. Apakah Anda ingin melihat perbandingan detail?",
+      "category": "evaluation",
+      "sub_category": "evaluation.objection_price",
+      "is_active": true
+    },
+    {
+      "name": "Template 4",
+      "content": "Investasi awal mungkin terlihat signifikan, namun klien kami rata-rata mengalami peningkatan produktivitas sebesar 40% dalam bulan pertama. Ini berarti Anda akan mulai melihat hasil positif dengan cepat. Dapatkah saya menunjukkan studi kasus dari perusahaan serupa?",
+      "category": "evaluation",
+      "sub_category": "evaluation.objection_price",
+      "is_active": true
+    },
+    {
+      "name": "Template 5",
+      "content": "Saya mengerti kekhawatiran Anda tentang biaya. Bagaimana jika kita mulai dengan paket starter selama 3 bulan dengan harga spesial 50% off? Ini memungkinkan Anda merasakan nilai produk kami tanpa komitmen jangka panjang yang besar.",
+      "category": "evaluation",
+      "sub_category": "evaluation.objection_price",
+      "is_active": true
+    },
+    {
+      "name": "Template 1",
+      "content": "Saya memahami kekhawatiran Anda tentang timeline ini. Namun, jika kita tunda keputusan, risiko biaya akan meningkat signifikan dalam 30 hari ke depan. Apakah ada aspek spesifik dari penawaran ini yang memerlukan clarifikasi lebih lanjut?",
+      "category": "evaluation",
+      "sub_category": "evaluation.objection_urgency",
+      "is_active": true
+    },
+    {
+      "name": "Template 2",
+      "content": "Saya mendengar keraguan Anda mengenai waktu implementasi. Berdasarkan data klien kami, penundaan lebih dari dua minggu biasanya menghasilkan gap operasional yang costly. Kapan Anda bisa tersedia untuk diskusi detail tentang timeline yang realistic?",
+      "category": "evaluation",
+      "sub_category": "evaluation.objection_urgency",
+      "is_active": true
+    },
+    {
+      "name": "Template 3",
+      "content": "Saya setuju bahwa keputusan besar memerlukan waktu pemikiran. Namun, slot kapasitas kami untuk Q1 ini terbatas dan akan penuh dalam waktu seminggu. Bisakah kita menjadwalkan follow-up call untuk Anda berdiskusi dengan tim internal Anda?",
+      "category": "evaluation",
+      "sub_category": "evaluation.objection_urgency",
+      "is_active": true
+    },
+    {
+      "name": "Template 3",
+      "content": "Kami menyediakan model pricing yang fleksibel. Apakah Anda mencari paket bulanan, tahunan, atau custom sesuai volume penggunaan Anda?",
+      "category": "evaluation",
+      "sub_category": "evaluation.pricing_inquiry",
+      "is_active": true
+    },
+    {
+      "name": "Template 4",
+      "content": "Harga spesial tersedia untuk kontrak jangka panjang dan volume besar. Bisakah Anda memberikan informasi tentang skala kebutuhan Anda agar kami memberikan penawaran terbaik?",
+      "category": "evaluation",
+      "sub_category": "evaluation.pricing_inquiry",
+      "is_active": true
+    },
+    {
+      "name": "Template 6",
+      "content": "Semua paket kami mencakup support teknis dan update gratis. Untuk detail lengkap harga dan perbandingan fitur, apakah Anda ingin melihat comparison chart kami?",
+      "category": "evaluation",
+      "sub_category": "evaluation.pricing_inquiry",
+      "is_active": true
+    },
+    {
+      "name": "Template 1",
+      "content": "Saya kurang memahami pertanyaan Anda. Mari saya hubungkan Anda dengan agen layanan pelanggan kami yang siap membantu.",
+      "category": "fallback",
+      "sub_category": "fallback.human_handoff",
+      "is_active": false
+    },
+    {
+      "name": "Template 2",
+      "content": "Maaf, saya tidak dapat memproses permintaan ini sepenuhnya. Biarkan saya menghubungkan Anda dengan spesialis kami.",
+      "category": "fallback",
+      "sub_category": "fallback.human_handoff",
+      "is_active": false
+    },
+    {
+      "name": "Template 3",
+      "content": "Terima kasih atas kesabaran Anda. Untuk hasil terbaik, saya akan menyambungkan Anda dengan agen dukungan kami.",
+      "category": "fallback",
+      "sub_category": "fallback.human_handoff",
+      "is_active": false
+    },
+    {
+      "name": "Template 1",
+      "content": "Sepertinya pesan Anda tidak sesuai dengan topik yang kami bahas. Apakah ada yang bisa saya bantu?",
+      "category": "fallback",
+      "sub_category": "fallback.spam_random",
+      "is_active": true
+    },
+    {
+      "name": "Template 2",
+      "content": "Saya tidak mengerti maksud pesan tersebut. Coba jelaskan dengan lebih spesifik apa yang Anda butuhkan.",
+      "category": "fallback",
+      "sub_category": "fallback.spam_random",
+      "is_active": true
+    },
+    {
+      "name": "Template 3",
+      "content": "Pesan Anda tidak relevan dengan percakapan kita. Bisakah Anda memberikan pertanyaan yang lebih jelas?",
+      "category": "fallback",
+      "sub_category": "fallback.spam_random",
+      "is_active": true
+    },
+    {
+      "name": "Template 4",
+      "content": "Saya gagal memahami apa yang Anda maksudkan. Silakan tanyakan sesuatu yang terkait dengan layanan kami.",
+      "category": "fallback",
+      "sub_category": "fallback.spam_random",
+      "is_active": true
+    },
+    {
+      "name": "Template 1",
+      "content": "Kami sangat menyesal mendengar pengalaman Anda yang tidak memuaskan. Tim kami siap membantu menyelesaikan masalah ini. Bisakah Anda memberikan detail lebih lanjut tentang keluhan yang Anda alami sehingga kami dapat menemukan solusi terbaik?",
+      "category": "retention",
+      "sub_category": "retention.complaint_handling",
+      "is_active": true
+    },
+    {
+      "name": "Template 2",
+      "content": "Terima kasih telah memberi tahu kami tentang masalah ini. Kami memahami betapa pentingnya hal ini bagi Anda. Izinkan kami untuk menginvestigasi lebih lanjut dan memberikan kompensasi yang sesuai. Kapan waktu terbaik untuk kami menghubungi Anda?",
+      "category": "retention",
+      "sub_category": "retention.complaint_handling",
+      "is_active": true
+    },
+    {
+      "name": "Template 3",
+      "content": "Kami mengakui kesalahan yang terjadi dan sangat berterima kasih atas kesabaran Anda. Sebagai bentuk tanggung jawab kami, kami ingin menawarkan [pengembalian dana/produk pengganti/diskon khusus] untuk pengalaman yang tidak memuaskan ini. Apakah ini dapat menerima?",
+      "category": "retention",
+      "sub_category": "retention.complaint_handling",
+      "is_active": true
+    },
+    {
+      "name": "Template 4",
+      "content": "Kami telah meninjau kasus Anda secara menyeluruh dan menemukan area yang perlu diperbaiki. Untuk mencegah hal ini terjadi lagi, kami telah mengimplementasikan tindakan korektif. Bisakah kami berkesempatan untuk memulai kembali dan memberikan layanan yang lebih baik?",
+      "category": "retention",
+      "sub_category": "retention.complaint_handling",
+      "is_active": true
+    },
+    {
+      "name": "Template 1",
+      "content": "Kami memahami jadwal Anda mungkin berubah. Kapan Anda ingin kami mengatur ulang layanan Anda? Kami siap membantu menemukan waktu yang paling sesuai untuk Anda.",
+      "category": "retention",
+      "sub_category": "retention.reschedule",
+      "is_active": true
+    },
+    {
+      "name": "Template 2",
+      "content": "Tidak masalah jika ada perubahan rencana. Silakan beritahu tanggal dan waktu baru yang Anda inginkan, dan kami akan segera mengkonfirmasi ketersediaan untuk Anda.",
+      "category": "retention",
+      "sub_category": "retention.reschedule",
+      "is_active": true
+    },
+    {
+      "name": "Template 1",
+      "content": "Saya memahami Anda mengalami masalah teknis. Mari kita identifikasi penyebabnya bersama. Bisa Anda jelaskan detail error yang muncul dan kapan pertama kali terjadi?",
+      "category": "retention",
+      "sub_category": "retention.technical_issue",
+      "is_active": true
+    },
+    {
+      "name": "Template 2",
+      "content": "Untuk menyelesaikan issue ini dengan cepat, saya butuh informasi tambahan. Sistem operasi apa yang Anda gunakan dan sudah coba solusi apa saja sejauh ini?",
+      "category": "retention",
+      "sub_category": "retention.technical_issue",
+      "is_active": true
+    },
+    {
+      "name": "Template 3",
+      "content": "Kami akan membantu mengatasi kendala teknis Anda. Apakah error ini terjadi di semua fitur atau hanya di bagian tertentu? Mohon screenshot jika memungkinkan.",
+      "category": "retention",
+      "sub_category": "retention.technical_issue",
+      "is_active": true
+    }
+  ]
 }

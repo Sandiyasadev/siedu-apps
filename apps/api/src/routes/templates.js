@@ -3,7 +3,7 @@ const router = express.Router();
 const { query } = require('../utils/db');
 const { delByPattern } = require('../utils/cache');
 const asyncHandler = require('../middleware/asyncHandler');
-const { requireRole } = require('../middleware/auth');
+const { requireRole, getEffectiveWorkspaceId } = require('../middleware/auth');
 const { seedDefaultTemplatesForBot } = require('../services/templateDefaults');
 
 const parseBool = (value) => {
@@ -44,7 +44,7 @@ router.get('/', asyncHandler(async (req, res) => {
         JOIN bots b ON b.id = t.bot_id
         WHERE b.workspace_id = $1
     `;
-    const params = [req.user.workspace_id];
+    const params = [getEffectiveWorkspaceId(req)];
     let paramIndex = 2;
 
     if (!includeInactive) {
@@ -93,7 +93,7 @@ router.get('/:id', asyncHandler(async (req, res) => {
         FROM templates t
         JOIN bots b ON b.id = t.bot_id
         WHERE t.id = $1 AND b.workspace_id = $2
-    `, [req.params.id, req.user.workspace_id]);
+    `, [req.params.id, getEffectiveWorkspaceId(req)]);
 
     if (result.rows.length === 0) {
         return res.status(404).json({ error: 'Template not found' });
@@ -120,7 +120,7 @@ router.post('/apply-default', requireRole('admin'), asyncHandler(async (req, res
 
     const botCheck = await query(
         `SELECT id FROM bots WHERE id = $1 AND workspace_id = $2`,
-        [bot_id, req.user.workspace_id]
+        [bot_id, getEffectiveWorkspaceId(req)]
     );
 
     if (botCheck.rows.length === 0) {
@@ -160,7 +160,7 @@ router.post('/', requireRole('admin'), asyncHandler(async (req, res) => {
     // Verify bot belongs to workspace
     const botCheck = await query(`
         SELECT id FROM bots WHERE id = $1 AND workspace_id = $2
-    `, [bot_id, req.user.workspace_id]);
+    `, [bot_id, getEffectiveWorkspaceId(req)]);
 
     if (botCheck.rows.length === 0) {
         return res.status(404).json({ error: 'Bot not found' });
@@ -189,7 +189,7 @@ router.patch('/:id', requireRole('admin'), asyncHandler(async (req, res) => {
         SELECT t.id, t.bot_id FROM templates t
         JOIN bots b ON b.id = t.bot_id
         WHERE t.id = $1 AND b.workspace_id = $2
-    `, [req.params.id, req.user.workspace_id]);
+    `, [req.params.id, getEffectiveWorkspaceId(req)]);
 
     if (check.rows.length === 0) {
         return res.status(404).json({ error: 'Template not found' });
@@ -257,7 +257,7 @@ router.delete('/:id', requireRole('admin'), asyncHandler(async (req, res) => {
         SELECT t.id, t.bot_id FROM templates t
         JOIN bots b ON b.id = t.bot_id
         WHERE t.id = $1 AND b.workspace_id = $2
-    `, [req.params.id, req.user.workspace_id]);
+    `, [req.params.id, getEffectiveWorkspaceId(req)]);
 
     if (check.rows.length === 0) {
         return res.status(404).json({ error: 'Template not found' });
@@ -284,7 +284,7 @@ router.post('/:id/send', asyncHandler(async (req, res) => {
         FROM templates t
         JOIN bots b ON b.id = t.bot_id
         WHERE t.id = $1 AND b.workspace_id = $2
-    `, [req.params.id, req.user.workspace_id]);
+    `, [req.params.id, getEffectiveWorkspaceId(req)]);
 
     if (templateResult.rows.length === 0) {
         return res.status(404).json({ error: 'Template not found' });
@@ -295,7 +295,7 @@ router.post('/:id/send', asyncHandler(async (req, res) => {
         SELECT c.id FROM conversations c
         JOIN bots b ON b.id = c.bot_id
         WHERE c.id = $1 AND b.workspace_id = $2
-    `, [conversation_id, req.user.workspace_id]);
+    `, [conversation_id, getEffectiveWorkspaceId(req)]);
 
     if (convCheck.rows.length === 0) {
         return res.status(403).json({ error: 'Conversation not found in your workspace' });

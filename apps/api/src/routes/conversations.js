@@ -3,6 +3,7 @@ const router = express.Router();
 const multer = require('multer');
 const { query } = require('../utils/db');
 const asyncHandler = require('../middleware/asyncHandler');
+const { getEffectiveWorkspaceId } = require('../middleware/auth');
 const { emitNewMessage, emitStatusChange } = require('../services/socketService');
 const cache = require('../utils/cache');
 const { storeOutboundMedia, buildMediaContent, getWhatsAppMediaType } = require('../services/mediaService');
@@ -18,7 +19,7 @@ const upload = multer({
 // GET /v1/conversations/unread-count - Global unread count for sidebar badge
 // ============================================
 router.get('/unread-count', asyncHandler(async (req, res) => {
-    const workspaceId = req.user.workspace_id;
+    const workspaceId = getEffectiveWorkspaceId(req);
 
     const result = await query(`
         SELECT COALESCE(SUM(c.unread_count), 0)::int as total_unread
@@ -34,7 +35,7 @@ router.get('/unread-count', asyncHandler(async (req, res) => {
 // GET /v1/conversations/stats - Dashboard stats (with caching)
 // ============================================
 router.get('/stats', asyncHandler(async (req, res) => {
-    const workspaceId = req.user.workspace_id;
+    const workspaceId = getEffectiveWorkspaceId(req);
     const cacheKey = `stats:${workspaceId}`;
 
     // Try to get from cache first (60 second TTL)
@@ -194,7 +195,7 @@ router.get('/', asyncHandler(async (req, res) => {
         WHERE b.workspace_id = $1
     `;
 
-    const params = [req.user.workspace_id];
+    const params = [getEffectiveWorkspaceId(req)];
     let paramIndex = 2;
 
     // Filter by bot
@@ -279,7 +280,7 @@ router.get('/:id', asyncHandler(async (req, res) => {
         JOIN bots b ON b.id = c.bot_id
         LEFT JOIN contacts co ON co.id = c.contact_id
         WHERE c.id = $1 AND b.workspace_id = $2
-    `, [req.params.id, req.user.workspace_id]);
+    `, [req.params.id, getEffectiveWorkspaceId(req)]);
 
     if (result.rows.length === 0) {
         return res.status(404).json({ error: 'Conversation not found' });
@@ -299,7 +300,7 @@ router.delete('/:id/messages', asyncHandler(async (req, res) => {
         SELECT c.id FROM conversations c
         JOIN bots b ON b.id = c.bot_id
         WHERE c.id = $1 AND b.workspace_id = $2
-    `, [conversationId, req.user.workspace_id]);
+    `, [conversationId, getEffectiveWorkspaceId(req)]);
 
     if (check.rows.length === 0) {
         return res.status(404).json({ error: 'Conversation not found' });
@@ -337,7 +338,7 @@ router.patch('/:id/contact', asyncHandler(async (req, res) => {
         SELECT c.contact_id FROM conversations c
         JOIN bots b ON b.id = c.bot_id
         WHERE c.id = $1 AND b.workspace_id = $2
-    `, [conversationId, req.user.workspace_id]);
+    `, [conversationId, getEffectiveWorkspaceId(req)]);
 
     if (conv.rows.length === 0) {
         return res.status(404).json({ error: 'Conversation not found' });
@@ -368,7 +369,7 @@ router.post('/:id/read', asyncHandler(async (req, res) => {
         SELECT c.id FROM conversations c
         JOIN bots b ON b.id = c.bot_id
         WHERE c.id = $1 AND b.workspace_id = $2
-    `, [req.params.id, req.user.workspace_id]);
+    `, [req.params.id, getEffectiveWorkspaceId(req)]);
 
     if (check.rows.length === 0) {
         return res.status(404).json({ error: 'Conversation not found' });
@@ -400,7 +401,7 @@ router.patch('/:id/status', asyncHandler(async (req, res) => {
         SELECT c.id FROM conversations c
         JOIN bots b ON b.id = c.bot_id
         WHERE c.id = $1 AND b.workspace_id = $2
-    `, [req.params.id, req.user.workspace_id]);
+    `, [req.params.id, getEffectiveWorkspaceId(req)]);
 
     if (check.rows.length === 0) {
         return res.status(404).json({ error: 'Conversation not found' });
@@ -442,7 +443,7 @@ router.get('/:id/messages', asyncHandler(async (req, res) => {
         SELECT c.id FROM conversations c
         JOIN bots b ON b.id = c.bot_id
         WHERE c.id = $1 AND b.workspace_id = $2
-    `, [req.params.id, req.user.workspace_id]);
+    `, [req.params.id, getEffectiveWorkspaceId(req)]);
 
     if (check.rows.length === 0) {
         return res.status(404).json({ error: 'Conversation not found' });
@@ -527,7 +528,7 @@ router.post('/:id/messages', upload.single('file'), asyncHandler(async (req, res
         FROM conversations c
         JOIN bots b ON b.id = c.bot_id
         WHERE c.id = $1 AND b.workspace_id = $2
-    `, [req.params.id, req.user.workspace_id]);
+    `, [req.params.id, getEffectiveWorkspaceId(req)]);
 
     if (convResult.rows.length === 0) {
         return res.status(404).json({ error: 'Conversation not found' });

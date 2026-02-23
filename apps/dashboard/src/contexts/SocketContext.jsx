@@ -3,6 +3,7 @@ import { io } from 'socket.io-client'
 import { API_BASE } from '../config/api'
 
 const SocketContext = createContext(null)
+const WORKSPACE_MODE_PATH_RE = /^\/w\/([^/]+)(?:\/|$)/
 
 export function useSocket() {
     const ctx = useContext(SocketContext)
@@ -43,6 +44,28 @@ function createNotificationSound() {
 
 const playNotification = createNotificationSound()
 
+function getSocketWorkspaceOverrideId() {
+    if (typeof window === 'undefined') return null
+
+    try {
+        const rawUser = window.localStorage.getItem('user')
+        if (!rawUser) return null
+        const user = JSON.parse(rawUser)
+        if (user?.role !== 'super_admin') return null
+    } catch {
+        return null
+    }
+
+    const match = window.location.pathname.match(WORKSPACE_MODE_PATH_RE)
+    if (!match?.[1]) return null
+
+    try {
+        return decodeURIComponent(match[1])
+    } catch {
+        return match[1]
+    }
+}
+
 export function SocketProvider({ children }) {
     const [isConnected, setIsConnected] = useState(false)
     const [unreadCount, setUnreadCount] = useState(0)
@@ -73,9 +96,13 @@ export function SocketProvider({ children }) {
     useEffect(() => {
         const token = getToken()
         if (!token) return
+        const workspaceIdOverride = getSocketWorkspaceOverrideId()
 
         const socket = io(API_BASE, {
-            auth: { token },
+            auth: {
+                token,
+                ...(workspaceIdOverride ? { workspaceId: workspaceIdOverride } : {})
+            },
             transports: ['websocket', 'polling'],
             reconnection: true,
             reconnectionAttempts: Infinity,

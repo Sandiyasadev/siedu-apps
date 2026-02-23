@@ -40,6 +40,7 @@ const loadTemplatePreset = (presetKey = 'default-v1') => {
         preset_key: parsed.preset_key || presetKey,
         preset_version: parsed.preset_version || 1,
         meta: parsed.meta || {},
+        quality_report: Array.isArray(parsed.quality_report) ? parsed.quality_report : [],
         templates,
     };
 };

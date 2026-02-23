@@ -2,7 +2,7 @@ const express = require('express');
 const { v4: uuidv4 } = require('uuid');
 const fetch = require('node-fetch');
 const { query } = require('../utils/db');
-const { authenticate, requireRole } = require('../middleware/auth');
+const { authenticate, requireRole, getEffectiveWorkspaceId } = require('../middleware/auth');
 const { asyncHandler } = require('../middleware/errorHandler');
 const { seedDefaultTemplateTaxonomyForBot } = require('../services/templateTaxonomyDefaults');
 
@@ -20,7 +20,7 @@ router.get('/', asyncHandler(async (req, res) => {
      FROM bots 
      WHERE workspace_id = $1 
      ORDER BY created_at DESC`,
-        [req.user.workspace_id]
+        [getEffectiveWorkspaceId(req)]
     );
 
     res.json({ bots: result.rows });
@@ -34,7 +34,7 @@ router.get('/:id', asyncHandler(async (req, res) => {
             embed_provider, embed_model, n8n_config, created_at, updated_at
      FROM bots 
      WHERE id = $1 AND workspace_id = $2`,
-        [req.params.id, req.user.workspace_id]
+        [req.params.id, getEffectiveWorkspaceId(req)]
     );
 
     if (result.rows.length === 0) {
@@ -69,7 +69,7 @@ router.post('/', requireRole('admin'), asyncHandler(async (req, res) => {
                        embed_provider, embed_model)
      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
      RETURNING *`,
-        [req.user.workspace_id, name, system_prompt, rag_top_k, rag_min_score,
+        [getEffectiveWorkspaceId(req), name, system_prompt, rag_top_k, rag_min_score,
             handoff_enabled, handoff_min_score, llm_provider, llm_model,
             embed_provider, embed_model]
     );
@@ -116,7 +116,7 @@ router.patch('/:id', requireRole('admin'), asyncHandler(async (req, res) => {
     }
 
     updates.push(`updated_at = NOW()`);
-    values.push(req.params.id, req.user.workspace_id);
+    values.push(req.params.id, getEffectiveWorkspaceId(req));
 
     const result = await query(
         `UPDATE bots SET ${updates.join(', ')} 
@@ -136,7 +136,7 @@ router.patch('/:id', requireRole('admin'), asyncHandler(async (req, res) => {
 router.delete('/:id', requireRole('admin'), asyncHandler(async (req, res) => {
     const result = await query(
         'DELETE FROM bots WHERE id = $1 AND workspace_id = $2 RETURNING id',
-        [req.params.id, req.user.workspace_id]
+        [req.params.id, getEffectiveWorkspaceId(req)]
     );
 
     if (result.rows.length === 0) {
@@ -273,7 +273,7 @@ router.post('/:id/channels', requireRole('admin'), asyncHandler(async (req, res)
     // Verify bot belongs to user's workspace
     const botCheck = await query(
         'SELECT id, name FROM bots WHERE id = $1 AND workspace_id = $2',
-        [req.params.id, req.user.workspace_id]
+        [req.params.id, getEffectiveWorkspaceId(req)]
     );
 
     if (botCheck.rows.length === 0) {
@@ -330,7 +330,7 @@ router.get('/:id/channels', asyncHandler(async (req, res) => {
     // Verify bot belongs to user's workspace
     const botCheck = await query(
         'SELECT id FROM bots WHERE id = $1 AND workspace_id = $2',
-        [req.params.id, req.user.workspace_id]
+        [req.params.id, getEffectiveWorkspaceId(req)]
     );
 
     if (botCheck.rows.length === 0) {
@@ -357,7 +357,7 @@ router.get('/:id/channels', asyncHandler(async (req, res) => {
 router.get('/:id/channels/:channelId', asyncHandler(async (req, res) => {
     const botCheck = await query(
         'SELECT id FROM bots WHERE id = $1 AND workspace_id = $2',
-        [req.params.id, req.user.workspace_id]
+        [req.params.id, getEffectiveWorkspaceId(req)]
     );
 
     if (botCheck.rows.length === 0) {
@@ -388,7 +388,7 @@ router.get('/:id/channels/:channelId', asyncHandler(async (req, res) => {
 router.get('/:id/channels/:channelId/config', requireRole('admin'), asyncHandler(async (req, res) => {
     const botCheck = await query(
         'SELECT id FROM bots WHERE id = $1 AND workspace_id = $2',
-        [req.params.id, req.user.workspace_id]
+        [req.params.id, getEffectiveWorkspaceId(req)]
     );
 
     if (botCheck.rows.length === 0) {
@@ -411,7 +411,7 @@ router.get('/:id/channels/:channelId/config', requireRole('admin'), asyncHandler
 router.patch('/:id/channels/:channelId', requireRole('admin'), asyncHandler(async (req, res) => {
     const botCheck = await query(
         'SELECT id FROM bots WHERE id = $1 AND workspace_id = $2',
-        [req.params.id, req.user.workspace_id]
+        [req.params.id, getEffectiveWorkspaceId(req)]
     );
 
     if (botCheck.rows.length === 0) {
@@ -512,7 +512,7 @@ router.post('/:id/channels/:channelId/setup-webhook', requireRole('admin'), asyn
 
     const botCheck = await query(
         'SELECT id FROM bots WHERE id = $1 AND workspace_id = $2',
-        [req.params.id, req.user.workspace_id]
+        [req.params.id, getEffectiveWorkspaceId(req)]
     );
 
     if (botCheck.rows.length === 0) {
@@ -604,7 +604,7 @@ router.post('/:id/channels/:channelId/setup-webhook', requireRole('admin'), asyn
 router.get('/:id/channels/:channelId/webhook-info', requireRole('admin'), asyncHandler(async (req, res) => {
     const botCheck = await query(
         'SELECT id FROM bots WHERE id = $1 AND workspace_id = $2',
-        [req.params.id, req.user.workspace_id]
+        [req.params.id, getEffectiveWorkspaceId(req)]
     );
 
     if (botCheck.rows.length === 0) {
@@ -653,7 +653,7 @@ router.get('/:id/channels/:channelId/webhook-info', requireRole('admin'), asyncH
 router.delete('/:id/channels/:channelId', requireRole('admin'), asyncHandler(async (req, res) => {
     const botCheck = await query(
         'SELECT id FROM bots WHERE id = $1 AND workspace_id = $2',
-        [req.params.id, req.user.workspace_id]
+        [req.params.id, getEffectiveWorkspaceId(req)]
     );
 
     if (botCheck.rows.length === 0) {
