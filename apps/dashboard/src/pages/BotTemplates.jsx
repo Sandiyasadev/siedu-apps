@@ -153,8 +153,26 @@ export default function BotTemplates() {
                                 setFilter={setFilter}
                                 onAddCategory={() => { setEditingCategory(null); setModals(m => ({ ...m, category: true })) }}
                                 onEditCategory={(cat) => { setEditingCategory(cat); setModals(m => ({ ...m, category: true })) }}
+                                onToggleCategory={async (cat) => {
+                                    if (cat.is_active) {
+                                        setModals(m => ({ ...m, confirm: { type: 'category-deactivate', entity: cat, title: 'Nonaktifkan Kategori', description: `Kategori "${cat.label}" dan semua intent di dalamnya akan diabaikan oleh bot.` } }))
+                                    } else {
+                                        await toggleCategory(cat.id, true)
+                                        flashNotice(`Kategori "${cat.label}" diaktifkan`)
+                                    }
+                                }}
+                                onDeleteCategory={(cat) => setModals(m => ({ ...m, confirm: { type: 'category', id: cat.id, title: 'Hapus Kategori', description: `Kategori "${cat.label}" dan semua intent di dalamnya akan dihapus permanen.`, isDanger: true } }))}
                                 onAddSubcategory={(catKey) => { setEditingSubcategory({ category_key: catKey }); setModals(m => ({ ...m, subcategory: true })) }}
                                 onEditSubcategory={(sub) => { setEditingSubcategory(sub); setModals(m => ({ ...m, subcategory: true })) }}
+                                onToggleSubcategory={async (sub) => {
+                                    if (sub.is_active) {
+                                        setModals(m => ({ ...m, confirm: { type: 'subcategory-deactivate', entity: sub, title: 'Nonaktifkan Intent', description: `Intent "${sub.label}" akan diabaikan oleh bot.` } }))
+                                    } else {
+                                        await toggleSubcategory(sub.id, true)
+                                        flashNotice(`Intent "${sub.label}" diaktifkan`)
+                                    }
+                                }}
+                                onDeleteSubcategory={(sub) => setModals(m => ({ ...m, confirm: { type: 'subcategory', id: sub.id, title: 'Hapus Intent', description: `Intent "${sub.label}" akan dihapus permanen.`, isDanger: true } }))}
                             />
                         </div>
                         <div style={{ flex: 1, display: 'flex', minWidth: 0, borderLeft: '1px solid var(--gray-200)' }}>
@@ -211,6 +229,7 @@ export default function BotTemplates() {
 
             {modals.confirm && (
                 <ConfirmModal
+                    open={true}
                     title={modals.confirm.title}
                     description={modals.confirm.description}
                     confirmLabel={modals.confirm.isDanger ? 'Ya, Hapus' : 'Ya, Lanjutkan'}

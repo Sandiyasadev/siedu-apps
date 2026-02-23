@@ -1,4 +1,4 @@
-import { FolderOpen, Settings2, Hash, Edit2, ShieldQuestion } from 'lucide-react'
+import { FolderOpen, Settings2, Hash, Edit2, ShieldQuestion, ToggleLeft, ToggleRight, Trash2 } from 'lucide-react'
 
 // Helper color map based on category
 export const CATEGORY_COLORS = {
@@ -21,7 +21,11 @@ export function TaxonomySidebar({
     filter,
     setFilter,
     onEditCategory,
+    onToggleCategory,
+    onDeleteCategory,
     onEditSubcategory,
+    onToggleSubcategory,
+    onDeleteSubcategory,
     onAddCategory,
     onAddSubcategory
 }) {
@@ -123,21 +127,45 @@ export function TaxonomySidebar({
                                     fontSize: 'var(--font-size-sm)'
                                 }}
                             >
-                                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: isCatSelected ? cColor.color : 'inherit', fontWeight: isCatSelected ? 600 : 500 }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: isCatSelected ? cColor.color : 'inherit', fontWeight: isCatSelected ? 600 : 500, opacity: cat.is_active === false ? 0.55 : 1 }}>
                                     <FolderOpen size={14} fill={isCatSelected ? cColor.color : 'none'} color={isCatSelected ? cColor.color : 'currentColor'} />
-                                    <span>{cat.label}</span>
-                                    {!cat.is_active && (
-                                        <span style={{ fontSize: '10px', background: 'var(--gray-200)', padding: '2px 6px', borderRadius: '4px' }}>nonaktif</span>
+                                    <span style={{ textDecoration: cat.is_active === false ? 'line-through' : 'none' }}>{cat.label}</span>
+                                    {cat.is_active === false && (
+                                        <span style={{ fontSize: '10px', background: 'var(--gray-200)', padding: '2px 6px', borderRadius: '4px', color: 'var(--gray-500)' }}>off</span>
                                     )}
                                 </div>
-                                <button
-                                    onClick={(e) => { e.stopPropagation(); onEditCategory(cat) }}
-                                    className="btn btn-icon"
-                                    style={{ padding: '4px', opacity: isCatSelected ? 1 : 0.5 }}
-                                    title="Pengaturan Kategori"
-                                >
-                                    <Edit2 size={12} />
-                                </button>
+                                <div style={{ display: 'flex', gap: '2px' }} onClick={e => e.stopPropagation()}>
+                                    <button
+                                        onClick={() => onEditCategory(cat)}
+                                        className="btn btn-icon"
+                                        style={{ padding: '4px', opacity: isCatSelected ? 1 : 0.5 }}
+                                        title="Edit Kategori"
+                                    >
+                                        <Edit2 size={12} />
+                                    </button>
+                                    {onToggleCategory && (
+                                        <button
+                                            onClick={() => onToggleCategory(cat)}
+                                            className="btn btn-icon"
+                                            style={{ padding: '4px', opacity: isCatSelected ? 1 : 0.5 }}
+                                            title={cat.is_active !== false ? 'Nonaktifkan' : 'Aktifkan'}
+                                        >
+                                            {cat.is_active !== false
+                                                ? <ToggleRight size={14} color="var(--success-600)" />
+                                                : <ToggleLeft size={14} color="var(--gray-400)" />}
+                                        </button>
+                                    )}
+                                    {onDeleteCategory && (
+                                        <button
+                                            onClick={() => onDeleteCategory(cat)}
+                                            className="btn btn-icon"
+                                            style={{ padding: '4px', opacity: isCatSelected ? 1 : 0.5 }}
+                                            title="Hapus Kategori"
+                                        >
+                                            <Trash2 size={12} color="var(--error-500)" />
+                                        </button>
+                                    )}
+                                </div>
                             </div>
 
                             {/* Subcategories (only show if category is selected) */}
@@ -165,7 +193,8 @@ export function TaxonomySidebar({
                                                     borderRadius: 'var(--radius-md)',
                                                     cursor: 'pointer',
                                                     background: isSubSelected ? 'var(--gray-100)' : 'transparent',
-                                                    fontSize: '13px'
+                                                    fontSize: '13px',
+                                                    opacity: sub.is_active === false ? 0.55 : 1
                                                 }}
                                             >
                                                 <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
@@ -189,14 +218,37 @@ export function TaxonomySidebar({
                                                         )}
                                                     </div>
                                                 </div>
-                                                <div style={{ display: 'flex', gap: '4px' }}>
+                                                <div style={{ display: 'flex', gap: '2px' }} onClick={e => e.stopPropagation()}>
                                                     <button
-                                                        onClick={(e) => { e.stopPropagation(); onEditSubcategory(sub) }}
+                                                        onClick={() => onEditSubcategory(sub)}
                                                         className="btn btn-icon"
                                                         style={{ padding: '2px' }}
+                                                        title="Edit Intent"
                                                     >
                                                         <Edit2 size={12} />
                                                     </button>
+                                                    {onToggleSubcategory && (
+                                                        <button
+                                                            onClick={() => onToggleSubcategory(sub)}
+                                                            className="btn btn-icon"
+                                                            style={{ padding: '2px' }}
+                                                            title={sub.is_active !== false ? 'Nonaktifkan' : 'Aktifkan'}
+                                                        >
+                                                            {sub.is_active !== false
+                                                                ? <ToggleRight size={13} color="var(--success-600)" />
+                                                                : <ToggleLeft size={13} color="var(--gray-400)" />}
+                                                        </button>
+                                                    )}
+                                                    {onDeleteSubcategory && (
+                                                        <button
+                                                            onClick={() => onDeleteSubcategory(sub)}
+                                                            className="btn btn-icon"
+                                                            style={{ padding: '2px' }}
+                                                            title="Hapus Intent"
+                                                        >
+                                                            <Trash2 size={12} color="var(--error-500)" />
+                                                        </button>
+                                                    )}
                                                 </div>
                                             </div>
                                         )
