@@ -102,65 +102,47 @@ export function installWorkspaceAwareFetch() {
         const requestUrl = typeof input === 'string' ? input : input?.url
         const isApiReq = isApiRequestUrl(requestUrl)
 
+        // If input is a Request, extract its headers as fallback
+        const inputHeaders = input instanceof Request ? input.headers : undefined
+
         // --- Workspace override injection (super_admin) ---
         const workspaceId = getCurrentWorkspaceOverrideId()
         const shouldInjectWorkspace = Boolean(workspaceId) && isSuperAdminSession()
 
         let effectiveInit = init
         if (shouldInjectWorkspace && isApiReq) {
-            const requestHeaders = new Headers(
-                init?.headers ?? (input instanceof Request ? input.headers : undefined)
-            )
+            const requestHeaders = new Headers(init?.headers ?? inputHeaders)
             requestHeaders.set('X-Workspace-Id', workspaceId)
             effectiveInit = { ...init, headers: requestHeaders }
-
-            if (input instanceof Request) {
-                const res = await _originalFetch(new Request(input, effectiveInit))
-                // Still apply auto-refresh logic below for workspace requests
-                if (res.status === 401 && !shouldSkipRefresh(requestUrl)) {
-                    return await retryWithRefresh(input, effectiveInit)
-                }
-                return res
-            }
         }
 
-        // --- Execute request ---
-        let res = await _originalFetch(input, effectiveInit)
+        // --- Execute request (clone Request to preserve body for potential retry) ---
+        const fetchInput = input instanceof Request ? input.clone() : input
+        let res = await _originalFetch(fetchInput, effectiveInit)
 
         // --- Auto-refresh on 401 for API requests ---
         if (res.status === 401 && isApiReq && !shouldSkipRefresh(requestUrl)) {
-            return await retryWithRefresh(input, effectiveInit)
+            try {
+                const newToken = await refreshAccessTokenGlobal()
+                if (!newToken) throw new Error('No new token')
+
+                const retryHeaders = new Headers(effectiveInit?.headers ?? inputHeaders)
+                retryHeaders.set('Authorization', `Bearer ${newToken}`)
+                const retryInit = { ...effectiveInit, headers: retryHeaders }
+
+                res = await _originalFetch(input, retryInit)
+            } catch {
+                // Refresh failed — redirect to login
+                window.location.href = '/login'
+                return new Response(JSON.stringify({ error: 'Session expired' }), {
+                    status: 401,
+                    headers: { 'Content-Type': 'application/json' }
+                })
+            }
         }
 
         return res
     }
 
     window[FETCH_PATCH_FLAG] = true
-}
-
-async function retryWithRefresh(input, init) {
-    try {
-        const newToken = await refreshAccessTokenGlobal()
-        if (!newToken) throw new Error('No new token')
-
-        // Clone the init and replace the Authorization header
-        const retryHeaders = new Headers(
-            init?.headers ?? (input instanceof Request ? input.headers : undefined)
-        )
-        retryHeaders.set('Authorization', `Bearer ${newToken}`)
-        const retryInit = { ...init, headers: retryHeaders }
-
-        if (input instanceof Request) {
-            return await _originalFetch(new Request(input, retryInit))
-        }
-        return await _originalFetch(input, retryInit)
-    } catch {
-        // Refresh failed — redirect to login
-        window.location.href = '/login'
-        // Return a minimal error response so callers don't crash
-        return new Response(JSON.stringify({ error: 'Session expired' }), {
-            status: 401,
-            headers: { 'Content-Type': 'application/json' }
-        })
-    }
 }
