@@ -1,5 +1,5 @@
 import { BrowserRouter, Routes, Route, Navigate, useParams } from 'react-router-dom'
-import { useState, useEffect, createContext, useContext } from 'react'
+import { useState, useEffect, useRef, createContext, useContext } from 'react'
 import { API_BASE, installWorkspaceAwareFetch } from './config/api'
 import { SocketProvider } from './contexts/SocketContext'
 import Login from './pages/Login'
@@ -125,7 +125,7 @@ function HomeIndexRoute() {
 function App() {
     const [user, setUser] = useState(null)
     const [loading, setLoading] = useState(true)
-    const refreshPromiseRef = { current: null }
+    const refreshPromiseRef = useRef(null)
 
     useEffect(() => {
         // Migrate from old 'token' key if present
