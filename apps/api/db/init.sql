@@ -30,6 +30,8 @@ CREATE TABLE IF NOT EXISTS users (
     name VARCHAR(255) NOT NULL,
     role VARCHAR(50) DEFAULT 'admin',
     is_active BOOLEAN DEFAULT true,
+    last_login_at TIMESTAMPTZ,
+    last_login_ip VARCHAR(50),
     created_at TIMESTAMPTZ DEFAULT NOW(),
     updated_at TIMESTAMPTZ DEFAULT NOW()
 );
@@ -145,6 +147,9 @@ CREATE TABLE IF NOT EXISTS conversations (
     handoff_resolved_at TIMESTAMPTZ,
     pending_handoff_offer BOOLEAN DEFAULT false,
     assigned_agent VARCHAR(255),
+    -- Handoff gatekeeper (V1 simplified)
+    last_agent_reply_at TIMESTAMPTZ,
+    unanswered_count INTEGER DEFAULT 0,
     -- Message tracking
     last_user_at TIMESTAMPTZ,
     last_message_preview TEXT,
@@ -164,6 +169,26 @@ CREATE INDEX IF NOT EXISTS idx_conversations_cursor ON conversations(cursor_id);
 CREATE INDEX IF NOT EXISTS idx_conversations_contact ON conversations(contact_id);
 CREATE INDEX IF NOT EXISTS idx_conversations_thread ON conversations(external_thread_id);
 CREATE INDEX IF NOT EXISTS idx_conversations_last_user ON conversations(last_user_at DESC);
+CREATE INDEX IF NOT EXISTS idx_conversations_status_handoff
+  ON conversations(status, last_agent_reply_at)
+  WHERE status = 'human';
+
+-- ============================================
+-- REFRESH TOKENS
+-- ============================================
+CREATE TABLE IF NOT EXISTS refresh_tokens (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    token_hash TEXT NOT NULL,
+    expires_at TIMESTAMPTZ NOT NULL,
+    ip_address VARCHAR(50),
+    user_agent TEXT,
+    revoked_at TIMESTAMPTZ,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_refresh_tokens_user ON refresh_tokens(user_id);
+CREATE INDEX IF NOT EXISTS idx_refresh_tokens_hash ON refresh_tokens(token_hash);
 
 -- ============================================
 -- MESSAGES
