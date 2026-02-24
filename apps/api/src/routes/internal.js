@@ -170,8 +170,15 @@ router.post('/update-state', asyncHandler(async (req, res) => {
 
     const result = await query(sql, params);
 
+    // Resolve workspaceId for socket broadcast
+    const convLookup = await query(
+        'SELECT b.workspace_id FROM conversations c JOIN bots b ON b.id = c.bot_id WHERE c.id = $1',
+        [conversation_id]
+    );
+    const workspaceId = convLookup.rows[0]?.workspace_id || null;
+
     // Emit socket event
-    emitStatusChange(conversation_id, status);
+    emitStatusChange(conversation_id, status, workspaceId);
 
     res.json({ success: true, conversation: result.rows[0] });
 }));
@@ -257,7 +264,12 @@ router.post('/initiate-handoff', asyncHandler(async (req, res) => {
             }
 
             // Emit socket event
-            emitStatusChange(conversation_id, 'handoff_pending');
+            // Resolve workspaceId for socket broadcast
+            const wsLookup = await query(
+                'SELECT b.workspace_id FROM conversations c JOIN bots b ON b.id = c.bot_id WHERE c.id = $1',
+                [conversation_id]
+            );
+            emitStatusChange(conversation_id, 'handoff_pending', wsLookup.rows[0]?.workspace_id || null);
         }
     }
 
@@ -366,8 +378,15 @@ router.post('/assign-agent', asyncHandler(async (req, res) => {
         `, [convId, result.customerMessage, JSON.stringify({ agent_id, agent_name, type: 'handoff_greeting' })]);
 
         await sendToChannel(convId, result.customerMessage);
-        emitStatusChange(convId, 'human_active');
-        emitNewMessage(convId, { role: 'agent', content: result.customerMessage });
+
+        // Resolve workspaceId for socket broadcast
+        const wsLookup = await query(
+            'SELECT b.workspace_id FROM conversations c JOIN bots b ON b.id = c.bot_id WHERE c.id = $1',
+            [convId]
+        );
+        const wsId = wsLookup.rows[0]?.workspace_id || null;
+        emitStatusChange(convId, 'human_active', wsId);
+        emitNewMessage(convId, { role: 'agent', content: result.customerMessage }, wsId);
     }
 
     res.json(result);
@@ -391,7 +410,12 @@ router.post('/resolve-handoff', asyncHandler(async (req, res) => {
     });
 
     if (result.success) {
-        emitStatusChange(result.handoff.conversation_id, 'resolved');
+        // Resolve workspaceId for socket broadcast
+        const wsLookup = await query(
+            'SELECT b.workspace_id FROM conversations c JOIN bots b ON b.id = c.bot_id WHERE c.id = $1',
+            [result.handoff.conversation_id]
+        );
+        emitStatusChange(result.handoff.conversation_id, 'resolved', wsLookup.rows[0]?.workspace_id || null);
     }
 
     res.json(result);
@@ -411,7 +435,12 @@ router.post('/return-to-bot', asyncHandler(async (req, res) => {
     const result = await handoffService.returnToBot(conversation_id, reason);
 
     if (result.success) {
-        emitStatusChange(conversation_id, 'bot_active');
+        // Resolve workspaceId for socket broadcast
+        const wsLookup = await query(
+            'SELECT b.workspace_id FROM conversations c JOIN bots b ON b.id = c.bot_id WHERE c.id = $1',
+            [conversation_id]
+        );
+        emitStatusChange(conversation_id, 'bot_active', wsLookup.rows[0]?.workspace_id || null);
     }
 
     res.json(result);

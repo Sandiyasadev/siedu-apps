@@ -892,7 +892,7 @@ function InboxPage() {
             })
             if (response.ok) {
                 setShowTemplates(false)
-                fetchMessages()
+                fetchMessages(selectedConv.id)
             }
         } catch (err) {
             console.error('Failed to send template:', err)

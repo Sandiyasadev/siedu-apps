@@ -420,7 +420,7 @@ router.patch('/:id/status', asyncHandler(async (req, res) => {
     const result = await query(sql, [req.params.id]);
 
     // Emit socket event
-    emitStatusChange(req.params.id, status);
+    emitStatusChange(req.params.id, status, getEffectiveWorkspaceId(req));
 
     res.json({ conversation: result.rows[0] });
 }));
@@ -570,7 +570,7 @@ router.post('/:id/messages', upload.single('file'), asyncHandler(async (req, res
     ]);
 
     // Emit socket event for real-time
-    emitNewMessage(req.params.id, msgResult.rows[0]);
+    emitNewMessage(req.params.id, msgResult.rows[0], getEffectiveWorkspaceId(req));
 
     // V1: Auto-switch to human mode when agent replies + track for handoff timeout
     const convBeforeUpdate = convResult.rows[0];
@@ -583,7 +583,7 @@ router.post('/:id/messages', upload.single('file'), asyncHandler(async (req, res
 
     // Emit status change only if status actually changed (was 'bot' before)
     if (convBeforeUpdate.status !== 'human') {
-        emitStatusChange(req.params.id, 'human');
+        emitStatusChange(req.params.id, 'human', getEffectiveWorkspaceId(req));
     }
 
     // Send to external channel (Telegram, WhatsApp, etc.)
