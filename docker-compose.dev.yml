@@ -77,7 +77,8 @@ services:
       MINIO_SECRET_KEY: minioadmin
       MINIO_BUCKET: chat-backend-storage
       JWT_SECRET: dev-secret-change-me
-      JWT_EXPIRES_IN: 7d
+      JWT_ACCESS_EXPIRES_IN: 1h
+      JWT_REFRESH_EXPIRES_DAYS: 7
       INTERNAL_API_KEY: dev-internal-key
       CORS_ORIGIN: "http://localhost:5173"
       PUBLIC_API_URL: https://apii.pansya.my.id

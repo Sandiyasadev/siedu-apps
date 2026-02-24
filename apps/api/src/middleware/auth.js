@@ -8,7 +8,7 @@ if (!JWT_SECRET) {
   process.exit(1);
 }
 
-const ACCESS_TOKEN_EXPIRY = process.env.JWT_ACCESS_EXPIRES_IN || "1h";
+const ACCESS_TOKEN_EXPIRY = process.env.JWT_ACCESS_EXPIRES_IN || process.env.JWT_EXPIRES_IN || "1h";
 const REFRESH_TOKEN_EXPIRY_DAYS = parseInt(process.env.JWT_REFRESH_EXPIRES_DAYS || "7", 10);
 
 const WORKSPACE_OVERRIDE_HEADER = "x-workspace-id";

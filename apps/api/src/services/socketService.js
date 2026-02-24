@@ -81,7 +81,7 @@ function initSocket(httpServer) {
             // Re-check user from DB — prevent stale JWT privilege escalation
             const userCheck = await query(
                 'SELECT id, role, is_active, workspace_id FROM users WHERE id = $1',
-                [decoded.id]
+                [decoded.userId]
             );
             if (userCheck.rows.length === 0 || !userCheck.rows[0].is_active) {
                 return next(new Error('User deactivated or not found'));
@@ -102,8 +102,16 @@ function initSocket(httpServer) {
             };
             next();
         } catch (err) {
-            console.warn('[Socket] Authentication error:', err.code || err.message);
-            next(new Error('Authentication error'));
+            if (err.name === 'JsonWebTokenError') {
+                console.warn('[Socket] Invalid token:', err.message);
+                next(new Error('Invalid token'));
+            } else if (err.name === 'TokenExpiredError') {
+                console.warn('[Socket] Token expired');
+                next(new Error('Token expired'));
+            } else {
+                console.warn('[Socket] Authentication error:', err.code || err.message);
+                next(new Error('Authentication error'));
+            }
         }
     });
 

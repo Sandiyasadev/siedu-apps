@@ -206,7 +206,7 @@ function useSuperAdminCore({ getToken }) {
         setActionNotice(null)
         setLastApplySummary(null)
         try {
-            const res = await fetch(`${API_BASE}/v1/admin/workspaces/${selectedWorkspaceId}/apply-presets`, {
+            const res = await fetch(`${API_BASE}/v1/admin/workspaces/${selectedWorkspaceId}/apply-bundle`, {
                 method: 'POST',
                 headers: {
                     ...authHeaders(),
@@ -246,7 +246,7 @@ function useSuperAdminCore({ getToken }) {
         setActionNotice(null)
         setLastPreviewSummary(null)
         try {
-            const res = await fetch(`${API_BASE}/v1/admin/workspaces/${selectedWorkspaceId}/preview-apply-presets`, {
+            const res = await fetch(`${API_BASE}/v1/admin/workspaces/${selectedWorkspaceId}/preview-apply-bundle`, {
                 method: 'POST',
                 headers: {
                     ...authHeaders(),
