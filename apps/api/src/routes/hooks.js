@@ -188,7 +188,7 @@ router.post('/telegram/:bot_public_id', asyncHandler(async (req, res) => {
         ? `[${telegramMedia?.mediaType?.toUpperCase() || 'MEDIA'}]${text ? ' ' + text : ''}`
         : content;
 
-    console.log(`[Telegram] - Message from ${chatId}: ${previewText.substring(0, 100)}`);
+    console.log(`[Telegram] - Incoming: type=${telegramMedia?.mediaType || 'text'}, len=${content.length}, chat=${String(chatId).slice(-4).padStart(String(chatId).length, '*')}`);
 
     // Find or create contact
     const contact = await findOrCreateContact({
@@ -581,7 +581,7 @@ router.post('/whatsapp/:bot_public_id', asyncHandler(async (req, res) => {
                     ? `[${msg.type.toUpperCase()}]${mediaResult?.caption ? ' ' + mediaResult.caption : ''}`
                     : content;
 
-                console.log(`[WhatsApp] - ${msg.type} from ${from}: ${previewText.substring(0, 100)}`);
+                console.log(`[WhatsApp] - Incoming: type=${msg.type}, len=${content.length}, from=***${from.slice(-4)}`);
 
                 // Get contact profile from webhook data
                 const waContact = contacts.find(c => c.wa_id === from) || {};
