@@ -53,7 +53,7 @@ if (isDevNoLimit) {
     // General API rate limiter
     const apiLimiter = createLimiter({
         windowMs: 15 * 60 * 1000, // 15 minutes
-        max: 100, // limit each IP to 100 requests per window
+        max: 500, // limit each IP to 500 requests per window
         message: { error: 'Too many requests, please try again later.' },
     });
 
@@ -79,7 +79,7 @@ if (isDevNoLimit) {
     // Webhook rate limiter (per channel path, lenient for integrations)
     const webhookLimiter = createLimiter({
         windowMs: 1 * 60 * 1000, // 1 minute
-        max: 300, // 300 requests per minute per channel
+        max: 600, // 600 requests per minute per channel
         message: { error: 'Webhook rate limit exceeded.' },
         keyGenerator: (req) => {
             // Key by channel path (e.g. "/v1/hooks/whatsapp/669bb048")
