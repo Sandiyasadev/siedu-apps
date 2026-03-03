@@ -1,0 +1,431 @@
+{
+    "name": "RAG Document Generator — Business Profile to KB",
+    "nodes": [
+        {
+            "parameters": {
+                "formTitle": "RAG Document Generator",
+                "formDescription": "Masukkan profil bisnis Anda. AI akan generate 5 dokumen Knowledge Base (FAQ, Policy, Product Info, Troubleshooting, Internal Guideline) yang siap di-review dan upload ke KB Dashboard.",
+                "formFields": {
+                    "values": [
+                        {
+                            "fieldLabel": "Nama Bisnis",
+                            "fieldType": "text",
+                            "requiredField": true,
+                            "placeholder": "Contoh: Bimbel Cerdas Indonesia"
+                        },
+                        {
+                            "fieldLabel": "Jenis Bisnis",
+                            "fieldType": "dropdown",
+                            "requiredField": true,
+                            "fieldOptions": {
+                                "values": [
+                                    {
+                                        "option": "Pendidikan / Bimbel / Kursus"
+                                    },
+                                    {
+                                        "option": "Kesehatan / Klinik / Wellness"
+                                    },
+                                    {
+                                        "option": "F&B / Restoran / Catering"
+                                    },
+                                    {
+                                        "option": "Retail / E-Commerce"
+                                    },
+                                    {
+                                        "option": "Jasa Profesional / Konsultan"
+                                    },
+                                    {
+                                        "option": "Properti / Real Estate"
+                                    },
+                                    {
+                                        "option": "Travel / Hospitality"
+                                    },
+                                    {
+                                        "option": "Lainnya"
+                                    }
+                                ]
+                            }
+                        },
+                        {
+                            "fieldLabel": "Deskripsi Layanan Utama",
+                            "fieldType": "textarea",
+                            "requiredField": true,
+                            "placeholder": "Jelaskan layanan/produk utama yang ditawarkan. Semakin detail semakin bagus."
+                        },
+                        {
+                            "fieldLabel": "Daftar Produk/Paket + Harga",
+                            "fieldType": "textarea",
+                            "requiredField": true,
+                            "placeholder": "Contoh:\n- Paket Reguler: Rp 500.000/bulan (2x seminggu)\n- Paket Intensif: Rp 900.000/bulan (4x seminggu)\n- Trial Class: Gratis 1x pertemuan"
+                        },
+                        {
+                            "fieldLabel": "Keunggulan / Diferensiasi",
+                            "fieldType": "textarea",
+                            "requiredField": true,
+                            "placeholder": "Apa yang membedakan bisnis Anda dari kompetitor? Sebutkan 3-5 keunggulan utama."
+                        },
+                        {
+                            "fieldLabel": "Jam Operasional",
+                            "fieldType": "text",
+                            "requiredField": true,
+                            "placeholder": "Contoh: Senin-Jumat 09.00-18.00 WIB, Sabtu 09.00-14.00 WIB"
+                        },
+                        {
+                            "fieldLabel": "Gaya Bahasa",
+                            "fieldType": "dropdown",
+                            "requiredField": true,
+                            "fieldOptions": {
+                                "values": [
+                                    {
+                                        "option": "casual-whatsapp (santai, pakai emoji, singkatan)"
+                                    },
+                                    {
+                                        "option": "friendly-formal (ramah tapi sopan, tanpa singkatan)"
+                                    },
+                                    {
+                                        "option": "formal-profesional (serius, tanpa emoji, baku)"
+                                    }
+                                ]
+                            }
+                        },
+                        {
+                            "fieldLabel": "Lokasi / Alamat",
+                            "fieldType": "textarea",
+                            "requiredField": false,
+                            "placeholder": "Alamat fisik, kota, atau catatan lokasi (online/offline/hybrid)"
+                        },
+                        {
+                            "fieldLabel": "Profil Tim / Pengajar / Tenaga Ahli",
+                            "fieldType": "textarea",
+                            "requiredField": false,
+                            "placeholder": "Contoh: Tim terdiri dari 5 tutor lulusan UI & ITB dengan pengalaman mengajar 5+ tahun"
+                        },
+                        {
+                            "fieldLabel": "Kurikulum / Metode Kerja / Tahapan Layanan",
+                            "fieldType": "textarea",
+                            "requiredField": false,
+                            "placeholder": "Jelaskan metode, kurikulum, atau tahapan layanan yang diberikan"
+                        },
+                        {
+                            "fieldLabel": "Kebijakan Refund / Pengembalian",
+                            "fieldType": "textarea",
+                            "requiredField": false,
+                            "placeholder": "Contoh: Refund 100% jika dibatalkan sebelum kelas pertama, 50% sebelum kelas ke-3"
+                        },
+                        {
+                            "fieldLabel": "Kebijakan Garansi / Jaminan",
+                            "fieldType": "textarea",
+                            "requiredField": false,
+                            "placeholder": "Contoh: Garansi nilai naik atau uang kembali, free re-take jika tidak puas"
+                        },
+                        {
+                            "fieldLabel": "Testimoni / Social Proof",
+                            "fieldType": "textarea",
+                            "requiredField": false,
+                            "placeholder": "Contoh testimoni pelanggan, jumlah klien, rating, penghargaan"
+                        },
+                        {
+                            "fieldLabel": "Promo / Penawaran Terbatas",
+                            "fieldType": "textarea",
+                            "requiredField": false,
+                            "placeholder": "Contoh: Diskon 20% untuk pendaftaran bulan ini, kuota terbatas 10 orang"
+                        },
+                        {
+                            "fieldLabel": "Cara Daftar / Link Booking",
+                            "fieldType": "textarea",
+                            "requiredField": false,
+                            "placeholder": "Langkah-langkah pendaftaran, link form, cara pembayaran"
+                        },
+                        {
+                            "fieldLabel": "FAQ Tambahan (Pertanyaan Spesifik)",
+                            "fieldType": "textarea",
+                            "requiredField": false,
+                            "placeholder": "Pertanyaan-pertanyaan unik yang sering ditanyakan pelanggan Anda"
+                        },
+                        {
+                            "fieldLabel": "Masalah Umum + Solusi",
+                            "fieldType": "textarea",
+                            "requiredField": false,
+                            "placeholder": "Contoh: Keterlambatan pengiriman → hubungi CS via WA, Lupa password → klik reset di app"
+                        },
+                        {
+                            "fieldLabel": "Aturan Khusus CS (Do/Don't)",
+                            "fieldType": "textarea",
+                            "requiredField": false,
+                            "placeholder": "Contoh: Jangan sebut nama kompetitor, selalu redirect ke admin untuk harga custom"
+                        }
+                    ]
+                },
+                "options": {
+                    "respondWithData": false
+                }
+            },
+            "id": "form-trigger",
+            "name": "Input Profil Bisnis",
+            "type": "n8n-nodes-base.formTrigger",
+            "typeVersion": 2.5,
+            "position": [
+                -800,
+                300
+            ],
+            "webhookId": "rag-doc-generator"
+        },
+        {
+            "parameters": {
+                "jsCode": "const form = $input.first().json;\n\nconst categories = [\n  {\n    kb_type: 'faq',\n    title: 'FAQ — Pertanyaan yang Sering Diajukan',\n    filename: 'faq.txt',\n    instruction: `Buat dokumen FAQ lengkap dalam format Tanya-Jawab (Q: ... A: ...) yang mencakup:\n- Pertanyaan tentang layanan/produk utama\n- Pertanyaan tentang harga dan paket\n- Pertanyaan tentang jadwal dan lokasi\n- Pertanyaan tentang cara mendaftar/memesan\n- Pertanyaan tentang keunggulan vs kompetitor\n- Pertanyaan tentang kredibilitas dan pengalaman\n- Pertanyaan tentang promo yang sedang berlaku\n- Pertanyaan tentang jam operasional\n- FAQ tambahan dari user (jika ada)\n\nTarget: 25-40 pasang Q&A. Jawaban harus informatif, spesifik dengan data yang diberikan, dan natural.`\n  },\n  {\n    kb_type: 'policy',\n    title: 'Kebijakan Perusahaan',\n    filename: 'policy.txt',\n    instruction: `Buat dokumen kebijakan perusahaan yang mencakup:\n- Syarat & Ketentuan Umum\n- Kebijakan Refund / Pengembalian Dana\n- Kebijakan Garansi / Jaminan\n- Kebijakan Pembatalan & Reschedule\n- Kebijakan Privasi Data Pelanggan\n- SLA (Service Level Agreement) jika relevan\n\nFormat: Heading per topik, lalu poin-poin jelas. Jika user tidak memberikan info spesifik, buat kebijakan yang wajar dan standar untuk jenis bisnis ini.`\n  },\n  {\n    kb_type: 'product_info',\n    title: 'Informasi Produk & Layanan',\n    filename: 'product_info.txt',\n    instruction: `Buat dokumen detail produk/layanan yang mencakup:\n- Overview bisnis dan value proposition\n- Detail setiap produk/paket (fitur, benefit, harga)\n- Profil tim/pengajar/tenaga ahli\n- Kurikulum/metode kerja/tahapan layanan\n- Target audience / siapa yang cocok\n- Testimoni dan social proof\n- Perbandingan antar paket (jika ada beberapa paket)\n\nFormat: Deskriptif dan informatif, cocok sebagai sumber referensi AI untuk menjawab pertanyaan detail.`\n  },\n  {\n    kb_type: 'troubleshooting',\n    title: 'Penanganan Masalah & Keluhan',\n    filename: 'troubleshooting.txt',\n    instruction: `Buat dokumen panduan troubleshooting yang mencakup:\n- Masalah umum yang sering dialami pelanggan + solusinya\n- Alur penanganan keluhan (dari terima keluhan → investigasi → solusi)\n- Kapan harus eskalasi ke human CS\n- Template respons untuk situasi sulit (pelanggan marah, minta refund, komplain)\n- FAQ troubleshooting teknis (jika ada)\n\nFormat: Problem → Solution, step-by-step. Buat 10-15 skenario masalah umum.`\n  },\n  {\n    kb_type: 'internal_guideline',\n    title: 'Panduan Internal CS Bot',\n    filename: 'internal_guideline.txt',\n    instruction: `Buat dokumen panduan internal untuk bot CS yang mencakup:\n- Persona dan gaya komunikasi bot\n- Aturan Do & Don't (apa yang boleh dan tidak boleh dijawab)\n- Alur percakapan ideal (greeting → discovery → conversion)\n- Cara handle objection harga (mahal, banding kompetitor)\n- Cara handle pelanggan ragu (takut rugi, pikir-pikir dulu)\n- Kapan menawarkan handoff ke human CS\n- Kata-kata/frasa yang wajib digunakan dan yang dilarang\n- Panduan upselling/cross-selling yang natural\n\nFormat: Heading per topik, poin-poin actionable. Ini BUKAN untuk pelanggan, ini panduan INTERNAL untuk mengontrol perilaku bot.`\n  }\n];\n\nreturn categories.map(cat => ({\n  json: { ...cat, form }\n}));"
+            },
+            "id": "set-categories",
+            "name": "Set 5 KB Categories",
+            "type": "n8n-nodes-base.code",
+            "typeVersion": 2,
+            "position": [
+                -540,
+                300
+            ]
+        },
+        {
+            "parameters": {
+                "batchSize": 1,
+                "options": {}
+            },
+            "id": "loop",
+            "name": "Loop Categories",
+            "type": "n8n-nodes-base.splitInBatches",
+            "typeVersion": 3,
+            "position": [
+                -280,
+                300
+            ]
+        },
+        {
+            "parameters": {
+                "jsCode": "const item = $input.first().json;\nconst form = item.form;\n\nconst bizName = form['Nama Bisnis'] || '';\nconst bizType = form['Jenis Bisnis'] || '';\nconst description = form['Deskripsi Layanan Utama'] || '';\nconst pricing = form['Daftar Produk/Paket + Harga'] || '';\nconst advantages = form['Keunggulan / Diferensiasi'] || '';\nconst hours = form['Jam Operasional'] || '';\nconst style = form['Gaya Bahasa'] || 'friendly-formal';\nconst location = form['Lokasi / Alamat'] || '';\nconst team = form['Profil Tim / Pengajar / Tenaga Ahli'] || '';\nconst curriculum = form['Kurikulum / Metode Kerja / Tahapan Layanan'] || '';\nconst refund = form['Kebijakan Refund / Pengembalian'] || '';\nconst guarantee = form['Kebijakan Garansi / Jaminan'] || '';\nconst testimonials = form['Testimoni / Social Proof'] || '';\nconst promo = form['Promo / Penawaran Terbatas'] || '';\nconst registration = form['Cara Daftar / Link Booking'] || '';\nconst extraFaq = form['FAQ Tambahan (Pertanyaan Spesifik)'] || '';\nconst commonIssues = form['Masalah Umum + Solusi'] || '';\nconst csRules = form['Aturan Khusus CS (Do/Don\\'t)'] || '';\n\nconst profileBlock = `=== PROFIL BISNIS ===\nNama: ${bizName}\nJenis: ${bizType}\nDeskripsi: ${description}\nProduk/Paket + Harga:\n${pricing}\nKeunggulan: ${advantages}\nJam Operasional: ${hours}\nLokasi: ${location || '(tidak diisi)'}\nTim/Pengajar: ${team || '(tidak diisi)'}\nKurikulum/Metode: ${curriculum || '(tidak diisi)'}\nKebijakan Refund: ${refund || '(tidak diisi)'}\nGaransi: ${guarantee || '(tidak diisi)'}\nTestimoni: ${testimonials || '(tidak diisi)'}\nPromo: ${promo || '(tidak diisi)'}\nCara Daftar: ${registration || '(tidak diisi)'}\nFAQ Tambahan: ${extraFaq || '(tidak diisi)'}\nMasalah Umum: ${commonIssues || '(tidak diisi)'}\nAturan CS: ${csRules || '(tidak diisi)'}\nGaya Bahasa: ${style}`;\n\nconst systemPrompt = `Kamu adalah AI Content Writer profesional yang membuat dokumen Knowledge Base untuk sistem Customer Service AI (chatbot RAG).\n\nTUGAS: Buat dokumen \"${item.title}\" (tipe: ${item.kb_type}) berdasarkan profil bisnis di bawah.\n\n${profileBlock}\n\n=== INSTRUKSI DOKUMEN ===\n${item.instruction}\n\n=== ATURAN PENULISAN ===\n1. Tulis HANYA berdasarkan informasi yang diberikan. JANGAN mengarang data.\n2. Jika ada field \"(tidak diisi)\", buat konten yang wajar dan standar untuk jenis bisnis \"${bizType}\", tapi TANDAI dengan [PERLU REVIEW] agar human tahu bagian ini perlu diedit.\n3. Gunakan gaya bahasa: ${style}.\n4. Tulis dalam Bahasa Indonesia.\n5. LANGSUNG tulis dokumen tanpa pembuka/penutup/komentar.\n6. Format yang rapi dengan heading, sub-heading, dan bullet points.\n7. Dokumen harus LENGKAP dan SIAP PAKAI sebagai sumber data AI chatbot.\n8. Sebutkan nama bisnis \"${bizName}\" secara natural di dalam dokumen.`;\n\nreturn [{\n  json: {\n    kb_type: item.kb_type,\n    title: item.title,\n    filename: item.filename,\n    systemPrompt,\n    userPrompt: `Tulis dokumen \"${item.title}\" yang lengkap untuk ${bizName}. LANGSUNG tulis konten dokumen.`\n  }\n}];"
+            },
+            "id": "build-prompt",
+            "name": "Build Doc Prompt",
+            "type": "n8n-nodes-base.code",
+            "typeVersion": 2,
+            "position": [
+                -40,
+                300
+            ]
+        },
+        {
+            "parameters": {
+                "inputSource": "passthrough",
+                "promptType": "define",
+                "text": "={{ $json.userPrompt }}",
+                "options": {
+                    "systemMessage": "={{ $json.systemPrompt }}",
+                    "temperature": 0.7
+                }
+            },
+            "id": "nova-pro-gen",
+            "name": "Nova Pro Generator",
+            "type": "@n8n/n8n-nodes-langchain.chainLlm",
+            "typeVersion": 1.4,
+            "position": [
+                200,
+                300
+            ]
+        },
+        {
+            "parameters": {
+                "model": "amazon.nova-pro-v1:0",
+                "options": {
+                    "temperature": 0.7
+                }
+            },
+            "id": "bedrock-llm",
+            "name": "AWS Bedrock Nova Pro",
+            "type": "@n8n/n8n-nodes-langchain.lmChatAwsBedrock",
+            "typeVersion": 1.1,
+            "position": [
+                200,
+                520
+            ],
+            "credentials": {
+                "aws": {
+                    "id": "w1WID0kdD8RQoTjj",
+                    "name": "us-api"
+                }
+            }
+        },
+        {
+            "parameters": {
+                "jsCode": "const raw = $input.first().json.text || $input.first().json.response?.text || $input.first().json.output || '';\nconst meta = $('Build Doc Prompt').first().json;\n\nlet content = raw.trim();\n\n// Clean any XML/thinking tags that LLM might include\ncontent = content\n  .replace(/<thinking[\\s\\S]*?<\\/thinking>/gi, '')\n  .replace(/<analysis[\\s\\S]*?<\\/analysis>/gi, '')\n  .replace(/<reasoning[\\s\\S]*?<\\/reasoning>/gi, '')\n  .replace(/```/g, '')\n  .replace(/\\n{3,}/g, '\\n\\n')\n  .trim();\n\nif (!content || content.length < 50) {\n  content = `[ERROR] Gagal generate dokumen ${meta.title}. Silakan coba lagi.`;\n}\n\n// Add header to document\nconst header = `# ${meta.title}\\n# Tipe KB: ${meta.kb_type}\\n# Generated by RAG Document Generator\\n# Tanggal: ${new Date().toISOString().slice(0,10)}\\n# ⚠️ REVIEW dokumen ini sebelum upload ke KB Dashboard\\n\\n---\\n\\n`;\n\nconst finalContent = header + content;\n\nreturn [{\n  json: {\n    kb_type: meta.kb_type,\n    title: meta.title,\n    filename: meta.filename,\n    content: finalContent,\n    charCount: finalContent.length,\n    wordCount: finalContent.split(/\\s+/).length\n  }\n}];"
+            },
+            "id": "format-output",
+            "name": "Format Document",
+            "type": "n8n-nodes-base.code",
+            "typeVersion": 2,
+            "position": [
+                440,
+                300
+            ]
+        },
+        {
+            "parameters": {
+                "jsCode": "const items = $input.all();\nconst form = $('Input Profil Bisnis').first().json;\nconst bizName = form['Nama Bisnis'] || 'Unknown';\n\nlet totalChars = 0;\nlet totalWords = 0;\nconst summary = [];\nconst binaryOutputs = {};\n\nfor (let i = 0; i < items.length; i++) {\n  const doc = items[i].json;\n  totalChars += doc.charCount || 0;\n  totalWords += doc.wordCount || 0;\n  summary.push(`✅ ${doc.filename} — ${doc.wordCount} kata`);\n\n  // Create binary file for download\n  binaryOutputs[`file_${i}`] = {\n    data: Buffer.from(doc.content, 'utf-8').toString('base64'),\n    mimeType: 'text/plain',\n    fileName: doc.filename\n  };\n}\n\nreturn [{\n  json: {\n    bizName,\n    totalDocs: items.length,\n    totalChars,\n    totalWords,\n    summary: summary.join('\\n'),\n    generated_at: new Date().toISOString()\n  },\n  binary: binaryOutputs\n}];"
+            },
+            "id": "merge-docs",
+            "name": "Merge All Documents",
+            "type": "n8n-nodes-base.code",
+            "typeVersion": 2,
+            "position": [
+                -280,
+                560
+            ]
+        },
+        {
+            "parameters": {
+                "formTitle": "📄 Dokumen KB Berhasil Di-generate!",
+                "formDescription": "={{ $json.totalDocs }} dokumen Knowledge Base untuk \"{{ $json.bizName }}\" berhasil dibuat ({{ $json.totalWords }} kata total). Download file-file di bawah, review & edit, lalu upload ke KB Dashboard.",
+                "formFields": {
+                    "values": [
+                        {
+                            "fieldLabel": "Ringkasan",
+                            "fieldType": "text",
+                            "fieldValue": "={{ $json.summary }}"
+                        },
+                        {
+                            "fieldLabel": "Total",
+                            "fieldType": "text",
+                            "fieldValue": "={{ $json.totalDocs }} dokumen, {{ $json.totalWords }} kata, {{ $json.totalChars }} karakter"
+                        },
+                        {
+                            "fieldLabel": "Langkah Selanjutnya",
+                            "fieldType": "text",
+                            "fieldValue": "1. Download semua file di atas\\n2. Review & edit (perhatikan tag [PERLU REVIEW])\\n3. Upload ke KB Dashboard per file\\n4. Pilih kb_type yang sesuai saat upload"
+                        }
+                    ]
+                },
+                "options": {}
+            },
+            "id": "form-response",
+            "name": "Form Response",
+            "type": "n8n-nodes-base.form",
+            "typeVersion": 1,
+            "position": [
+                -20,
+                560
+            ]
+        }
+    ],
+    "connections": {
+        "Input Profil Bisnis": {
+            "main": [
+                [
+                    {
+                        "node": "Set 5 KB Categories",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Set 5 KB Categories": {
+            "main": [
+                [
+                    {
+                        "node": "Loop Categories",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Loop Categories": {
+            "main": [
+                [
+                    {
+                        "node": "Merge All Documents",
+                        "type": "main",
+                        "index": 0
+                    }
+                ],
+                [
+                    {
+                        "node": "Build Doc Prompt",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Build Doc Prompt": {
+            "main": [
+                [
+                    {
+                        "node": "Nova Pro Generator",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "AWS Bedrock Nova Pro": {
+            "ai_languageModel": [
+                [
+                    {
+                        "node": "Nova Pro Generator",
+                        "type": "ai_languageModel",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Nova Pro Generator": {
+            "main": [
+                [
+                    {
+                        "node": "Format Document",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Format Document": {
+            "main": [
+                [
+                    {
+                        "node": "Loop Categories",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Merge All Documents": {
+            "main": [
+                [
+                    {
+                        "node": "Form Response",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        }
+    },
+    "pinData": {},
+    "active": false,
+    "settings": {
+        "executionOrder": "v1"
+    },
+    "meta": {
+        "templateCredsSetupCompleted": true
+    },
+    "tags": [
+        {
+            "name": "kb"
+        },
+        {
+            "name": "generator"
+        },
+        {
+            "name": "rag"
+        }
+    ]
+}

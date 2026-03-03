@@ -1,5 +1,5 @@
 {
-  "name": "Engine Responder V4.1 — Time-Aware + Lower Latency",
+  "name": "Engine Responder V4.3 — Media Guard + Handoff + Message Split",
   "nodes": [
     {
       "parameters": {
@@ -407,7 +407,7 @@
     },
     {
       "parameters": {
-        "jsCode": "return items.map(item => {\n  let content = String(item.json.output || item.json.response || item.json.text || '');\n  content = content\n    .replace(/<thinking[\\s\\S]*?<\\/thinking>/gi, '')\n    .replace(/<analysis[\\s\\S]*?<\\/analysis>/gi, '')\n    .replace(/<reasoning[\\s\\S]*?<\\/reasoning>/gi, '')\n    .replace(/<\\/?[^>]+>/g, '')\n    .replace(/\\n{3,}/g, '\\n\\n').trim();\n  if (!content) content = 'Maaf Kak, saya sedang mengalami kendala teknis. Mohon coba lagi ya 🙏';\n  item.json.content = content;\n  return item;\n});"
+        "jsCode": "return items.map(item => {\n  let content = String(item.json.output || item.json.response || item.json.text || '');\n  content = content\n    .replace(/<thinking[\\s\\S]*?<\\/thinking>/gi, '')\n    .replace(/<analysis[\\s\\S]*?<\\/analysis>/gi, '')\n    .replace(/<reasoning[\\s\\S]*?<\\/reasoning>/gi, '')\n    .replace(/<\\/?[^>]+>/g, '')\n    .replace(/\\n{3,}/g, '\\n\\n').trim();\n  // Detect [HANDOFF] tag from LLM output\n  const hasHandoff = /\\[HANDOFF\\]/i.test(content);\n  content = content.replace(/\\[HANDOFF\\]/gi, '').trim();\n  if (!content) content = 'Maaf Kak, saya sedang mengalami kendala teknis. Mohon coba lagi ya 🙏';\n  item.json.content = content;\n  item.json.handoff = hasHandoff;\n  return item;\n});"
       },
       "id": "clean-output",
       "name": "Clean Output",
@@ -437,7 +437,7 @@
         },
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={\n  \"conversation_id\": \"{{ $('Build RAG Context').first().json.conversation_id }}\",\n  \"content\": {{ JSON.stringify($json.content || '') }},\n  \"sender_type\": \"bot\"\n}",
+        "jsonBody": "={\n  \"conversation_id\": \"{{ $('Build RAG Context').first().json.conversation_id }}\",\n  \"content\": {{ JSON.stringify($json.content || '') }},\n  \"handoff\": {{ $json.handoff || false }},\n  \"sender_type\": \"bot\"\n}",
         "options": {}
       },
       "id": "send-response",
@@ -554,6 +554,99 @@
         -1600,
         -800
       ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "chk-msg-type",
+              "leftValue": "={{ $json.message.type }}",
+              "operator": {
+                "operation": "equals",
+                "type": "string"
+              },
+              "rightValue": "text"
+            }
+          ],
+          "combinator": "or"
+        },
+        "options": {}
+      },
+      "id": "check-msg-type",
+      "name": "Check Message Type",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        -2700,
+        -600
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const payload = $('Normalize Payload').first().json;\nconst mediaType = payload.message.type || 'unknown';\nconst mediaLabels = { image: 'gambar', video: 'video', audio: 'audio', voice: 'pesan suara', document: 'dokumen', sticker: 'stiker', location: 'lokasi' };\nconst label = mediaLabels[mediaType] || mediaType;\nreturn [{ json: { conversation_id: payload.conversationId, media_type: mediaType, media_label: label, content: `Maaf Kak, saat ini kami belum bisa memproses pesan berupa ${label}. Silakan sampaikan pertanyaan Kakak dalam bentuk teks ya 🙏` } }];"
+      },
+      "id": "build-media-reply",
+      "name": "Build Media Reply",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -2500,
+        -400
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://host.docker.internal:8080/v1/internal/ai-response",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Internal-Key",
+              "value": "=dev-internal-key"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"conversation_id\": \"{{ $json.conversation_id }}\",\n  \"content\": {{ JSON.stringify($json.content || '') }},\n  \"sender_type\": \"bot\"\n}",
+        "options": {}
+      },
+      "id": "send-media-reply",
+      "name": "Send Media Reply",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -2300,
+        -400
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={ \"success\": true, \"skipped\": true, \"reason\": \"unsupported_media\" }",
+        "options": {}
+      },
+      "id": "respond-media-skip",
+      "name": "Respond Media Skip",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        -2100,
+        -400
+      ]
     }
   ],
   "connections": {
@@ -572,7 +665,47 @@
       "main": [
         [
           {
+            "node": "Check Message Type",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Message Type": {
+      "main": [
+        [
+          {
             "node": "Has Content?",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Build Media Reply",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Media Reply": {
+      "main": [
+        [
+          {
+            "node": "Send Media Reply",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send Media Reply": {
+      "main": [
+        [
+          {
+            "node": "Respond Media Skip",
             "type": "main",
             "index": 0
           }
@@ -859,7 +992,7 @@
       "name": "responder"
     },
     {
-      "name": "v4.1"
+      "name": "v4.3"
     },
     {
       "name": "production"

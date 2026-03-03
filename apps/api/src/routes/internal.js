@@ -4,7 +4,7 @@ const { query } = require('../utils/db');
 const { getOrSet, delByPattern } = require('../utils/cache');
 const asyncHandler = require('../middleware/asyncHandler');
 const { emitNewMessage, emitStatusChange } = require('../services/socketService');
-const { sendToChannel } = require('../services/channelService');
+const { sendToChannel, sendTypingIndicator } = require('../services/channelService');
 const handoffService = require('../services/handoffService');
 const { safeCompare } = require('../utils/crypto');
 
@@ -45,6 +45,45 @@ const verifyInternalKey = (req, res, next) => {
 };
 
 router.use(verifyInternalKey);
+
+// ============================================
+// Utility: Split long messages into natural chat chunks
+// ============================================
+function splitMessage(text, maxLen = 500) {
+    if (!text || text.length <= maxLen) return [text];
+
+    // Split by double newline (paragraph breaks)
+    const paragraphs = text.split(/\n\n+/);
+    const chunks = [];
+    let current = '';
+
+    for (const para of paragraphs) {
+        if (current && (current.length + para.length + 2) > maxLen) {
+            chunks.push(current.trim());
+            current = para;
+        } else {
+            current = current ? current + '\n\n' + para : para;
+        }
+    }
+    if (current.trim()) chunks.push(current.trim());
+
+    // If any single chunk is still too long, split at sentence boundary
+    const finalChunks = [];
+    for (const chunk of chunks) {
+        if (chunk.length <= maxLen) { finalChunks.push(chunk); continue; }
+        const sentences = chunk.match(/[^.!?]+[.!?]+[\s]*/g) || [chunk];
+        let buf = '';
+        for (const s of sentences) {
+            if (buf && (buf.length + s.length) > maxLen) {
+                finalChunks.push(buf.trim());
+                buf = s;
+            } else { buf += s; }
+        }
+        if (buf.trim()) finalChunks.push(buf.trim());
+    }
+
+    return finalChunks.length > 0 ? finalChunks : [text];
+}
 
 // ============================================
 // POST /v1/internal/ai-response
@@ -107,13 +146,23 @@ router.post('/ai-response', asyncHandler(async (req, res) => {
         emitStatusChange(conversation_id, 'human', conversation.workspace_id);
     }
 
-    // Send to external channel (Telegram, WhatsApp, etc.) with clean content
+    // Send to external channel (Telegram, WhatsApp, etc.) with chunked delivery
     let channelResult = { success: true };
     if (conversation.channel_type !== 'web') {
-        channelResult = await sendToChannel(conversation_id, cleanContent);
-        console.log(`[AI Response] Channel send result:`, channelResult);
+        const chunks = splitMessage(cleanContent);
+        console.log(`[AI Response] Splitting into ${chunks.length} chunk(s) for channel delivery`);
 
-        // Update message with provider_message_id and status
+        for (let i = 0; i < chunks.length; i++) {
+            if (i > 0) {
+                // Send typing indicator + delay between chunks for natural feel
+                await sendTypingIndicator(conversation_id).catch(() => { });
+                await new Promise(r => setTimeout(r, 1000 + Math.min(chunks[i].length * 5, 2000)));
+            }
+            channelResult = await sendToChannel(conversation_id, chunks[i]);
+            console.log(`[AI Response] Chunk ${i + 1}/${chunks.length} sent:`, channelResult.success);
+        }
+
+        // Update message with last chunk's provider_message_id and status
         if (channelResult.success && channelResult.message_id) {
             await query(
                 'UPDATE messages SET provider_message_id = $1, status = $2 WHERE id = $3',
