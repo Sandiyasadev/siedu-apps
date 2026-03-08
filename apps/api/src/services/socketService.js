@@ -1,6 +1,7 @@
 const { Server } = require('socket.io');
 const jwt = require('jsonwebtoken');
 const { query } = require('../utils/db');
+const logger = require('../utils/logger');
 
 let io = null;
 const SOCKET_WORKSPACE_OVERRIDE_KEY = 'workspaceId';
@@ -103,20 +104,20 @@ function initSocket(httpServer) {
             next();
         } catch (err) {
             if (err.name === 'JsonWebTokenError') {
-                console.warn('[Socket] Invalid token:', err.message);
+                logger.warn({ err: err.message }, '[Socket] Invalid token');
                 next(new Error('Invalid token'));
             } else if (err.name === 'TokenExpiredError') {
-                console.warn('[Socket] Token expired');
+                logger.warn('[Socket] Token expired');
                 next(new Error('Token expired'));
             } else {
-                console.warn('[Socket] Authentication error:', err.code || err.message);
+                logger.warn({ err: err.code || err.message }, '[Socket] Authentication error');
                 next(new Error('Authentication error'));
             }
         }
     });
 
     io.on('connection', (socket) => {
-        console.log(`[Socket] Client connected: ${socket.id} (user: ${socket.user.email}, workspace: ${socket.user.effective_workspace_id || socket.user.workspace_id})`);
+        logger.debug({ socketId: socket.id, email: socket.user.email }, '[Socket] Client connected');
 
         // Join conversation room - WITH OWNERSHIP CHECK
         socket.on('join:conversation', async (conversationId) => {
@@ -131,14 +132,12 @@ function initSocket(httpServer) {
 
                 if (result.rows.length === 0) {
                     socket.emit('error', { message: 'Access denied: conversation not found in your workspace' });
-                    console.log(`[Socket] DENIED: ${socket.user.email} tried to join conversation:${conversationId}`);
                     return;
                 }
 
                 socket.join(`conversation:${conversationId}`);
-                console.log(`[Socket] ${socket.id} joined conversation:${conversationId}`);
             } catch (err) {
-                console.error(`[Socket] Error verifying conversation access:`, err.message);
+                logger.error({ err: err.message }, '[Socket] Error verifying conversation access');
                 socket.emit('error', { message: 'Failed to join conversation' });
             }
         });
@@ -153,7 +152,6 @@ function initSocket(httpServer) {
             if (socket.user) {
                 const workspaceId = socket.user.effective_workspace_id || socket.user.workspace_id;
                 socket.join(`workspace:${workspaceId}`);
-                console.log(`[Socket] Agent ${socket.user.email} joined workspace room:${workspaceId}`);
             }
         });
 
@@ -184,11 +182,11 @@ function initSocket(httpServer) {
         });
 
         socket.on('disconnect', () => {
-            console.log(`[Socket] Client disconnected: ${socket.id}`);
+            logger.debug({ socketId: socket.id }, '[Socket] Client disconnected');
         });
     });
 
-    console.log('🔌 Socket.io initialized');
+    logger.info('[Socket] Socket.io initialized');
     return io;
 }
 

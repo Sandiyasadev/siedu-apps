@@ -1,5 +1,6 @@
 const { query } = require('../utils/db');
 const { emitStatusChange } = require('./socketService');
+const logger = require('../utils/logger');
 
 // Must match the value in hooks.js
 const HANDOFF_TIMEOUT_MS = 10 * 60 * 1000; // 10 minutes
@@ -26,7 +27,7 @@ async function revertStaleHandoffs() {
         `);
 
         if (result.rows.length > 0) {
-            console.log(`[HandoffScheduler] Auto-reverted ${result.rows.length} conversation(s) to bot`);
+            logger.info({ count: result.rows.length }, '[HandoffScheduler] Auto-reverted conversations to bot');
 
             // Emit socket events so dashboards update in real-time
             for (const row of result.rows) {
@@ -34,14 +35,14 @@ async function revertStaleHandoffs() {
             }
         }
     } catch (err) {
-        console.error('[HandoffScheduler] Error reverting stale handoffs:', err.message);
+        logger.error({ err: err.message }, '[HandoffScheduler] Error reverting stale handoffs');
     }
 }
 
 function startHandoffScheduler() {
     if (intervalId) return; // Already running
 
-    console.log(`[HandoffScheduler] Started — checking every ${CHECK_INTERVAL_MS / 1000}s, timeout: ${HANDOFF_TIMEOUT_MS / 1000}s`);
+    logger.info({ intervalSecs: CHECK_INTERVAL_MS / 1000, timeoutSecs: HANDOFF_TIMEOUT_MS / 1000 }, '[HandoffScheduler] Started');
     intervalId = setInterval(revertStaleHandoffs, CHECK_INTERVAL_MS);
 
     // Also run once immediately on startup
@@ -52,7 +53,7 @@ function stopHandoffScheduler() {
     if (intervalId) {
         clearInterval(intervalId);
         intervalId = null;
-        console.log('[HandoffScheduler] Stopped');
+        logger.info('[HandoffScheduler] Stopped');
     }
 }
 

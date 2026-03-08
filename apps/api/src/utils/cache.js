@@ -1,4 +1,5 @@
 const IORedis = require('ioredis');
+const logger = require('./logger');
 
 // ============================================
 // Redis Cache Configuration
@@ -21,11 +22,11 @@ const getRedis = () => {
         });
 
         redis.on('error', (err) => {
-            console.error('❌ Redis cache error:', err.message);
+            logger.error({ err: err.message }, 'Redis cache error');
         });
 
         redis.on('connect', () => {
-            console.log('📦 Redis cache connected');
+            logger.info('Redis cache connected');
         });
     }
     return redis;
@@ -49,7 +50,7 @@ const get = async (key) => {
         }
         return null;
     } catch (error) {
-        console.error('Cache get error:', error.message);
+        logger.error({ err: error.message }, 'Cache get error');
         return null;
     }
 };
@@ -67,7 +68,7 @@ const set = async (key, value, ttl = DEFAULT_TTL) => {
         await client.setex(CACHE_PREFIX + key, ttl, JSON.stringify(value));
         return true;
     } catch (error) {
-        console.error('Cache set error:', error.message);
+        logger.error({ err: error.message }, 'Cache set error');
         return false;
     }
 };
@@ -83,7 +84,7 @@ const del = async (key) => {
         await client.del(CACHE_PREFIX + key);
         return true;
     } catch (error) {
-        console.error('Cache del error:', error.message);
+        logger.error({ err: error.message }, 'Cache del error');
         return false;
     }
 };
@@ -103,7 +104,7 @@ const delByPattern = async (pattern) => {
         }
         return 0;
     } catch (error) {
-        console.error('Cache delByPattern error:', error.message);
+        logger.error({ err: error.message }, 'Cache delByPattern error');
         return 0;
     }
 };
@@ -150,7 +151,7 @@ const incr = async (key, ttl = null) => {
         
         return value;
     } catch (error) {
-        console.error('Cache incr error:', error.message);
+        logger.error({ err: error.message }, 'Cache incr error');
         return 0;
     }
 };
@@ -225,7 +226,7 @@ const checkRateLimit = async (key, maxRequests, windowSeconds) => {
             remaining: Math.max(0, maxRequests - current)
         };
     } catch (error) {
-        console.error('Rate limit check error:', error.message);
+        logger.error({ err: error.message }, 'Rate limit check error');
         // Allow on error
         return { allowed: true, current: 0, limit: maxRequests, remaining: maxRequests };
     }

@@ -1,10 +1,12 @@
+const logger = require('../utils/logger');
+
 const errorHandler = (err, req, res, next) => {
-    console.error('❌ Error:', {
-        message: err.message,
-        stack: process.env.NODE_ENV === 'development' ? err.stack : undefined,
+    const log = (req.log || logger);
+    log.error({
+        err: { message: err.message, stack: process.env.NODE_ENV === 'development' ? err.stack : undefined },
         path: req.path,
-        method: req.method
-    });
+        method: req.method,
+    }, 'Request error');
 
     const isProd = process.env.NODE_ENV === 'production';
 

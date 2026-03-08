@@ -1,5 +1,6 @@
 const { query } = require('../utils/db');
 const { uploadToMeta, getWhatsAppMediaType } = require('./mediaService');
+const logger = require('../utils/logger');
 
 /**
  * Send message to a specific channel
@@ -21,14 +22,14 @@ async function sendToChannel(conversationId, content, media = null) {
     `, [conversationId]);
 
     if (result.rows.length === 0) {
-        console.error(`[ChannelService] No channel found for conversation ${conversationId}`);
+        logger.error({ conversationId }, '[ChannelService] No channel found');
         return { success: false, error: 'Channel not found' };
     }
 
     const conv = result.rows[0];
     const config = conv.config || {};
 
-    console.log(`[ChannelService] Sending to ${conv.channel_type} - chat: ${conv.external_thread_id}`);
+    logger.debug({ channel: conv.channel_type }, '[ChannelService] Sending message');
 
     try {
         switch (conv.channel_type) {
@@ -37,11 +38,11 @@ async function sendToChannel(conversationId, content, media = null) {
             case 'whatsapp':
                 return await sendWhatsApp(conv.external_thread_id, content, config, media);
             default:
-                console.warn(`[ChannelService] Unsupported channel type: ${conv.channel_type}`);
+                logger.warn({ channelType: conv.channel_type }, '[ChannelService] Unsupported channel type');
                 return { success: false, error: 'Unsupported channel' };
         }
     } catch (error) {
-        console.error(`[ChannelService] Error sending to ${conv.channel_type}:`, error.message);
+        logger.error({ err: error.message, channelType: conv.channel_type }, '[ChannelService] Error sending');
         return { success: false, error: error.message };
     }
 }
@@ -115,18 +116,17 @@ async function sendTelegram(chatId, text, config, media = null, retries = 3) {
             const data = await response.json();
 
             if (!data.ok) {
-                console.error('[Telegram] API Error:', data.description);
+                logger.error({ description: data.description }, '[Telegram] API Error');
                 return { success: false, error: data.description };
             }
 
-            console.log(`[Telegram] Message sent to ${chatId}`);
             return { success: true, message_id: data.result.message_id };
 
         } catch (error) {
             const isLastAttempt = attempt === retries;
             const errorMsg = error.name === 'AbortError' ? 'Request timeout' : error.message;
 
-            console.error(`[Telegram] Attempt ${attempt}/${retries} failed:`, errorMsg);
+            if (!isLastAttempt) logger.warn({ attempt, retries, err: errorMsg }, '[Telegram] Retrying send');
 
             if (isLastAttempt) {
                 return { success: false, error: errorMsg };
@@ -161,7 +161,7 @@ async function sendWhatsApp(phoneNumber, text, config, media = null) {
         try {
             mediaId = await uploadToMeta(media.buffer, media.mimeType, config);
         } catch (uploadErr) {
-            console.error('[WhatsApp] Media upload to Meta failed:', uploadErr.message);
+            logger.error({ err: uploadErr.message }, '[WhatsApp] Media upload to Meta failed');
             return { success: false, error: `Media upload failed: ${uploadErr.message}` };
         }
 
@@ -205,11 +205,9 @@ async function sendWhatsApp(phoneNumber, text, config, media = null) {
     const data = await response.json();
 
     if (data.error) {
-        console.error('[WhatsApp] API Error:', data.error.message);
+        logger.error({ err: data.error.message }, '[WhatsApp] API Error');
         return { success: false, error: data.error.message };
     }
-
-    console.log(`[WhatsApp] Message sent to ${phoneNumber}`);
     return { success: true, message_id: data.messages?.[0]?.id };
 }
 
@@ -240,14 +238,12 @@ async function sendWhatsAppTypingIndicator(waMessageId, config) {
             })
         });
 
-        if (response.ok) {
-            console.log(`[WhatsApp] Typing indicator sent for message ${waMessageId}`);
-        } else {
+        if (!response.ok) {
             const err = await response.json();
-            console.warn(`[WhatsApp] Typing indicator failed:`, err.error?.message || response.status);
+            logger.warn({ err: err.error?.message || response.status }, '[WhatsApp] Typing indicator failed');
         }
     } catch (err) {
-        console.warn(`[WhatsApp] Typing indicator error:`, err.message);
+        logger.warn({ err: err.message }, '[WhatsApp] Typing indicator error');
     }
 }
 
@@ -262,17 +258,13 @@ async function sendTelegramTyping(chatId, config) {
 
     try {
         const url = `https://api.telegram.org/bot${botToken}/sendChatAction`;
-        const response = await fetch(url, {
+        await fetch(url, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ chat_id: chatId, action: 'typing' })
         });
-
-        if (response.ok) {
-            console.log(`[Telegram] Typing indicator sent to ${chatId}`);
-        }
     } catch (err) {
-        console.warn(`[Telegram] Typing indicator error:`, err.message);
+        logger.warn({ err: err.message }, '[Telegram] Typing indicator error');
     }
 }
 

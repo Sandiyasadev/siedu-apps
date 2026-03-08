@@ -1,10 +1,11 @@
 const jwt = require("jsonwebtoken");
 const crypto = require("crypto");
 const { query } = require("../utils/db");
+const logger = require("../utils/logger");
 
 const JWT_SECRET = process.env.JWT_SECRET;
 if (!JWT_SECRET) {
-  console.error('FATAL: JWT_SECRET environment variable is not set. Refusing to start.');
+  logger.fatal('FATAL: JWT_SECRET environment variable is not set. Refusing to start.');
   process.exit(1);
 }
 
@@ -127,12 +128,12 @@ const logWorkspaceOverrideAccess = async (req) => {
       ],
     );
   } catch (auditError) {
-    console.error("[Auth] Failed to write workspace override audit log:", {
-      error: auditError.message,
+    logger.error({
+      err: auditError.message,
       actor_user_id: req.user.id,
       target_workspace_id: ctx.effectiveWorkspaceId,
       path: req.originalUrl || req.url || null,
-    });
+    }, '[Auth] Failed to write workspace override audit log');
   }
 };
 

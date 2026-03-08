@@ -8,6 +8,8 @@ const { emitNewMessage, emitNewConversation, emitMessageStatus } = require('../s
 const { downloadAndStoreMedia, downloadTelegramMedia, extractMediaInfo, buildMediaContent } = require('../services/mediaService');
 const { sendTypingIndicator, sendWhatsAppTypingIndicator } = require('../services/channelService');
 const { safeCompare } = require('../utils/crypto');
+const logger = require('../utils/logger');
+const { getBreaker } = require('../utils/n8nCircuitBreaker');
 
 const router = express.Router();
 
@@ -44,23 +46,22 @@ async function shouldForwardToN8n(conversationId) {
                  WHERE id = $1`,
                 [conversationId]
             );
-            console.log(`[Handoff] Auto-reverted conv ${conversationId} to bot (timeout: ${timeSinceAgent > HANDOFF_TIMEOUT_MS}, unanswered: ${(conv.unanswered_count || 0) >= MAX_UNANSWERED})`);
+            logger.info({ conversationId, timeout: timeSinceAgent > HANDOFF_TIMEOUT_MS, unanswered: (conv.unanswered_count || 0) >= MAX_UNANSWERED }, '[Handoff] Auto-reverted conv to bot');
             return true;
         }
 
         // Still in human mode, increment unanswered count
         await query(
-            `UPDATE conversations 
-             SET unanswered_count = COALESCE(unanswered_count, 0) + 1 
+            `UPDATE conversations
+             SET unanswered_count = COALESCE(unanswered_count, 0) + 1
              WHERE id = $1`,
             [conversationId]
         );
-        console.log(`[Handoff] Conv ${conversationId} in human mode, unanswered: ${(conv.unanswered_count || 0) + 1}`);
+        logger.debug({ conversationId, unanswered: (conv.unanswered_count || 0) + 1 }, '[Handoff] Conv in human mode');
         return false;
     } catch (err) {
         // If columns don't exist yet (migration not applied), default to forwarding
-        console.error(`[Handoff] Error checking handoff state for conv ${conversationId}:`, err.message);
-        console.warn('[Handoff] Defaulting to forward — run migrations: bash packages/database/migrate.sh');
+        logger.error({ conversationId, err: err.message }, '[Handoff] Error checking handoff state — defaulting to forward');
         return true;
     }
 }
@@ -73,11 +74,7 @@ const verifyTelegramWebhook = async (req) => {
     const secretToken = req.headers['x-telegram-bot-api-secret-token'];
     const botPublicId = req.params.bot_public_id;
 
-    console.log('[Telegram] Incoming webhook request:');
-    console.log('[Telegram] - Public ID:', botPublicId);
-
     if (!botPublicId) {
-        console.log('[Telegram] - FAIL: No public ID');
         return null;
     }
 
@@ -91,7 +88,6 @@ const verifyTelegramWebhook = async (req) => {
     );
 
     if (result.rows.length === 0) {
-        console.log('[Telegram] - FAIL: Channel not found or disabled');
         return null;
     }
 
@@ -99,24 +95,19 @@ const verifyTelegramWebhook = async (req) => {
 
     // Secret token is REQUIRED — reject if missing
     if (!secretToken) {
-        console.log('[Telegram] - FAIL: Missing secret token header');
         return null;
     }
 
     // Verify it matches our stored secret (timing-safe)
     if (!safeCompare(secretToken, channel.secret)) {
-        console.log('[Telegram] - FAIL: Secret token mismatch');
         return null;
     }
 
-    console.log('[Telegram] - SUCCESS: Verification passed');
     return channel;
 };
 
 // POST /v1/hooks/telegram/:bot_public_id - Telegram webhook
 router.post('/telegram/:bot_public_id', asyncHandler(async (req, res) => {
-    console.log('[Telegram] ========= NEW WEBHOOK REQUEST =========');
-
     // Idempotency guard: Telegram retries on 500, prevent duplicate inserts
     const updateId = req.body.update_id;
     if (updateId) {
@@ -125,7 +116,7 @@ router.post('/telegram/:bot_public_id', asyncHandler(async (req, res) => {
             [String(updateId)]
         );
         if (dup.rows.length > 0) {
-            console.log(`[Telegram] Duplicate update_id ${updateId} — skipping`);
+            logger.debug({ updateId }, '[Telegram] Duplicate update_id — skipping');
             return res.status(200).json({ status: 'duplicate' });
         }
     }
@@ -180,7 +171,6 @@ router.post('/telegram/:bot_public_id', asyncHandler(async (req, res) => {
     }
 
     if (!content) {
-        console.log('[Telegram] - Skipping: no text or media');
         return res.status(200).json({ status: 'skipped' });
     }
 
@@ -188,7 +178,7 @@ router.post('/telegram/:bot_public_id', asyncHandler(async (req, res) => {
         ? `[${telegramMedia?.mediaType?.toUpperCase() || 'MEDIA'}]${text ? ' ' + text : ''}`
         : content;
 
-    console.log(`[Telegram] - Incoming: type=${telegramMedia?.mediaType || 'text'}, len=${content.length}, chat=${String(chatId).slice(-4).padStart(String(chatId).length, '*')}`);
+    logger.debug({ type: telegramMedia?.mediaType || 'text', len: content.length }, '[Telegram] Incoming message');
 
     // Find or create contact
     const contact = await findOrCreateContact({
@@ -235,7 +225,7 @@ router.post('/telegram/:bot_public_id', asyncHandler(async (req, res) => {
         );
     } catch (insertErr) {
         if (insertErr.code === '23505') {
-            console.log(`[Telegram] Duplicate insert blocked by DB constraint — skipping`);
+            logger.debug('[Telegram] Duplicate insert blocked by DB constraint — skipping');
             return res.status(200).json({ status: 'duplicate' });
         }
         throw insertErr;
@@ -272,28 +262,25 @@ router.post('/telegram/:bot_public_id', asyncHandler(async (req, res) => {
         const n8nBase = channel.n8n_config?.webhook_base_url || process.env.N8N_WEBHOOK_BASE;
         const n8nWebhookUrl = `${n8nBase}/chat-message`;
 
-        fetch(n8nWebhookUrl, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                bot_id: channel.bot_id,
-                channel_id: channel.id,
-                conversation_id: conversationId,
-                channel_type: 'telegram',
-                external_thread_id: chatId.toString(),
-                text: text || previewText,
-                message_type: telegramMedia?.mediaType || 'text',
-                media: mediaResult || null,
-                user: fromUser,
-                raw: req.body
-            })
-        })
-            .then(r => {
-                if (!r.ok) console.error(`[Telegram] n8n returned ${r.status} for conv ${conversationId}`);
-            })
-            .catch(err => console.error(`[Telegram] n8n unreachable for conv ${conversationId}:`, err.message));
+        const breaker = getBreaker(n8nBase);
+        breaker.fire(n8nWebhookUrl, {
+            bot_id: channel.bot_id,
+            channel_id: channel.id,
+            conversation_id: conversationId,
+            channel_type: 'telegram',
+            external_thread_id: chatId.toString(),
+            text: text || previewText,
+            message_type: telegramMedia?.mediaType || 'text',
+            media: mediaResult || null,
+            user: fromUser,
+            raw: req.body
+        }, req.id).catch(err => {
+            if (err?.code !== 'EOPENBREAKER') {
+                logger.error({ err: err.message, conversationId }, '[Telegram] Unexpected n8n error');
+            }
+        });
     } else {
-        console.log(`[Telegram] Skipping n8n forward - conv ${conversationId} in human mode`);
+        logger.debug({ conversationId }, '[Telegram] Skipping n8n — conv in human mode');
     }
 
     res.status(200).json({ status: 'received' });
@@ -428,28 +415,23 @@ router.get('/whatsapp/:bot_public_id', asyncHandler(async (req, res) => {
     const token = req.query['hub.verify_token'];
     const challenge = req.query['hub.challenge'];
 
-    console.log('[WhatsApp] Webhook verification request:');
-    console.log('[WhatsApp] - Public ID:', req.params.bot_public_id);
-    console.log('[WhatsApp] - Mode:', mode);
-
     if (mode !== 'subscribe' || !token) {
         return res.status(403).send('Forbidden');
     }
 
     const channel = await findWhatsAppChannel(req.params.bot_public_id);
     if (!channel) {
-        console.log('[WhatsApp] - FAIL: Channel not found');
         return res.status(404).send('Channel not found');
     }
 
     // verify_token is stored in channel config
     const expectedToken = channel.config?.verify_token;
     if (!safeCompare(token, expectedToken)) {
-        console.log('[WhatsApp] - FAIL: Verify token mismatch');
+        logger.warn({ publicId: req.params.bot_public_id }, '[WhatsApp] Verify token mismatch');
         return res.status(403).send('Invalid verify token');
     }
 
-    console.log('[WhatsApp] - SUCCESS: Verification passed, returning challenge');
+    logger.info({ publicId: req.params.bot_public_id }, '[WhatsApp] Webhook verified');
 
     // Update channel status to connected on successful verification
     await query(
@@ -462,24 +444,21 @@ router.get('/whatsapp/:bot_public_id', asyncHandler(async (req, res) => {
 
 // POST /v1/hooks/whatsapp/:bot_public_id - Receive WhatsApp messages
 router.post('/whatsapp/:bot_public_id', asyncHandler(async (req, res) => {
-    console.log('[WhatsApp] ========= NEW WEBHOOK REQUEST =========');
-
     const channel = await findWhatsAppChannel(req.params.bot_public_id);
     if (!channel) {
-        console.log('[WhatsApp] - Channel not found for public_id:', req.params.bot_public_id);
         return res.status(200).json({ status: 'ignored' }); // Always 200 for Meta
     }
 
     // Require app_secret — reject if not configured
     const appSecret = channel.config?.app_secret;
     if (!appSecret) {
-        console.warn('[WhatsApp] - REJECTED: app_secret not configured for channel', channel.id);
+        logger.warn({ channelId: channel.id }, '[WhatsApp] app_secret not configured — rejecting');
         return res.status(200).json({ status: 'rejected_no_secret' });
     }
 
     // Verify signature
     if (!verifyWhatsAppSignature(req, appSecret)) {
-        console.log('[WhatsApp] - FAIL: Invalid signature');
+        logger.warn({ channelId: channel.id }, '[WhatsApp] Invalid signature');
         return res.status(200).json({ status: 'invalid_signature' });
     }
 
@@ -514,7 +493,7 @@ router.post('/whatsapp/:bot_public_id', asyncHandler(async (req, res) => {
                         [msg.id]
                     );
                     if (dup.rows.length > 0) {
-                        console.log(`[WhatsApp] Duplicate wa_message_id ${msg.id} — skipping`);
+                        logger.debug({ msgId: msg.id }, '[WhatsApp] Duplicate wa_message_id — skipping');
                         continue;
                     }
                 }
@@ -564,7 +543,6 @@ router.post('/whatsapp/:bot_public_id', asyncHandler(async (req, res) => {
                         break;
 
                     case 'reaction':
-                        console.log(`[WhatsApp] - Reaction from ${from}: ${msg.reaction?.emoji}`);
                         continue; // Skip reactions, don't save as message
 
                     default:
@@ -573,7 +551,6 @@ router.post('/whatsapp/:bot_public_id', asyncHandler(async (req, res) => {
                 }
 
                 if (!content) {
-                    console.log('[WhatsApp] - Skipping empty message, type:', msg.type);
                     continue;
                 }
 
@@ -581,7 +558,7 @@ router.post('/whatsapp/:bot_public_id', asyncHandler(async (req, res) => {
                     ? `[${msg.type.toUpperCase()}]${mediaResult?.caption ? ' ' + mediaResult.caption : ''}`
                     : content;
 
-                console.log(`[WhatsApp] - Incoming: type=${msg.type}, len=${content.length}, from=***${from.slice(-4)}`);
+                logger.debug({ type: msg.type, len: content.length }, '[WhatsApp] Incoming message');
 
                 // Get contact profile from webhook data
                 const waContact = contacts.find(c => c.wa_id === from) || {};
@@ -638,7 +615,7 @@ router.post('/whatsapp/:bot_public_id', asyncHandler(async (req, res) => {
                     );
                 } catch (insertErr) {
                     if (insertErr.code === '23505') {
-                        console.log(`[WhatsApp] Duplicate insert blocked by DB constraint — skipping`);
+                        logger.debug('[WhatsApp] Duplicate insert blocked by DB constraint — skipping');
                         continue;
                     }
                     throw insertErr;
@@ -674,29 +651,26 @@ router.post('/whatsapp/:bot_public_id', asyncHandler(async (req, res) => {
                     const n8nBase = channel.n8n_config?.webhook_base_url || process.env.N8N_WEBHOOK_BASE;
                     const n8nWebhookUrl = `${n8nBase}/chat-message`;
 
-                    fetch(n8nWebhookUrl, {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({
-                            bot_id: channel.bot_id,
-                            channel_id: channel.id,
-                            conversation_id: conversationId,
-                            channel_type: 'whatsapp',
-                            external_thread_id: from,
-                            text: msg.type === 'text' ? content : previewText,
-                            message_type: msg.type,
-                            media: mediaResult || null,
-                            user: userData,
-                            wa_message_id: msg.id,
-                            raw: { message: msg, contact: waContact, metadata }
-                        })
-                    })
-                        .then(r => {
-                            if (!r.ok) console.error(`[WhatsApp] n8n returned ${r.status} for conv ${conversationId}`);
-                        })
-                        .catch(err => console.error(`[WhatsApp] n8n unreachable for conv ${conversationId}:`, err.message));
+                    const waBreaker = getBreaker(n8nBase);
+                    waBreaker.fire(n8nWebhookUrl, {
+                        bot_id: channel.bot_id,
+                        channel_id: channel.id,
+                        conversation_id: conversationId,
+                        channel_type: 'whatsapp',
+                        external_thread_id: from,
+                        text: msg.type === 'text' ? content : previewText,
+                        message_type: msg.type,
+                        media: mediaResult || null,
+                        user: userData,
+                        wa_message_id: msg.id,
+                        raw: { message: msg, contact: waContact, metadata }
+                    }, req.id).catch(err => {
+                        if (err?.code !== 'EOPENBREAKER') {
+                            logger.error({ err: err.message, conversationId }, '[WhatsApp] Unexpected n8n error');
+                        }
+                    });
                 } else {
-                    console.log(`[WhatsApp] Skipping n8n forward - conv ${conversationId} in human mode`);
+                    logger.debug({ conversationId }, '[WhatsApp] Skipping n8n — conv in human mode');
                 }
             }
 
@@ -704,8 +678,6 @@ router.post('/whatsapp/:bot_public_id', asyncHandler(async (req, res) => {
             const statuses = value.statuses || [];
             const statusRank = { failed: 0, sent: 1, delivered: 2, read: 3 };
             for (const status of statuses) {
-                console.log(`[WhatsApp] - Status update: ${status.id} -> ${status.status}`);
-
                 const newStatus = status.status; // sent | delivered | read | failed
                 if (!(newStatus in statusRank)) continue;
 
@@ -717,7 +689,6 @@ router.post('/whatsapp/:bot_public_id', asyncHandler(async (req, res) => {
                     );
 
                     if (msgLookup.rows.length === 0) {
-                        console.log(`[WhatsApp] - No message found for provider_message_id: ${status.id}`);
                         continue;
                     }
 
@@ -731,7 +702,6 @@ router.post('/whatsapp/:bot_public_id', asyncHandler(async (req, res) => {
                             'UPDATE messages SET status = $1 WHERE id = $2',
                             [newStatus, existingMsg.id]
                         );
-                        console.log(`[WhatsApp] - Updated message ${existingMsg.id} status: ${existingMsg.status} -> ${newStatus}`);
 
                         // Get workspace_id for socket emit
                         const convLookup = await query(
@@ -744,7 +714,7 @@ router.post('/whatsapp/:bot_public_id', asyncHandler(async (req, res) => {
                         emitMessageStatus(existingMsg.conversation_id, existingMsg.id, newStatus, workspaceId);
                     }
                 } catch (err) {
-                    console.error(`[WhatsApp] - Error processing status update:`, err.message);
+                    logger.error({ err: err.message }, '[WhatsApp] Error processing status update');
                 }
             }
         }

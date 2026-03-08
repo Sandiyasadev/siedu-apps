@@ -1,5 +1,6 @@
 const express = require('express');
 const { pool, getPoolStats, healthCheck } = require('../utils/db');
+const { getCircuitStats } = require('../utils/n8nCircuitBreaker');
 
 const router = express.Router();
 
@@ -10,7 +11,8 @@ router.get('/', async (req, res) => {
         timestamp: new Date().toISOString(),
         uptime: process.uptime(),
         services: {},
-        pool: getPoolStats()
+        pool: getPoolStats(),
+        n8n_circuits: getCircuitStats(),
     };
 
     // Check database

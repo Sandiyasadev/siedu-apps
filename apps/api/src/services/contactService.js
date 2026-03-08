@@ -1,4 +1,5 @@
 const { query } = require('../utils/db');
+const logger = require('../utils/logger');
 
 /**
  * Find or create a contact based on external_id and channel
@@ -47,7 +48,7 @@ async function findOrCreateContact({ workspaceId, externalId, channelType, userD
         [workspaceId, externalId, channelType, name, phone, JSON.stringify(userData)]
     );
 
-    console.log(`[Contact] Created new contact: ${result.rows[0].id} for ${channelType}:${externalId}`);
+    logger.info({ contactId: result.rows[0].id, channelType, externalId }, '[Contact] Created new contact');
 
     return { id: result.rows[0].id, created: true };
 }

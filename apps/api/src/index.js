@@ -5,8 +5,9 @@ validateEnv();
 const express = require('express');
 const cors = require('cors');
 const helmet = require('helmet');
-const morgan = require('morgan');
 const http = require('http');
+const logger = require('./utils/logger');
+const { requestLogger, attachRequestId } = require('./middleware/requestLogger');
 
 // Import routes
 const authRoutes = require('./routes/auth');
@@ -60,8 +61,9 @@ app.use('/v1', (req, res, next) => {
     return apiLimiter(req, res, next);
 });
 
-// Logging
-app.use(morgan('combined'));
+// Structured logging (replaces morgan)
+app.use(requestLogger);
+app.use(attachRequestId);
 
 // Body parsing (capture raw body for webhook signature verification)
 app.use(express.json({
@@ -92,9 +94,7 @@ app.use(errorHandler);
 
 // Start server with Socket.io support
 server.listen(PORT, async () => {
-    console.log(`API Server running on port ${PORT}`);
-    console.log(`Socket.io enabled`);
-    console.log(`Environment: ${process.env.NODE_ENV || 'development'}`);
+    logger.info({ port: PORT, env: process.env.NODE_ENV || 'development' }, 'API Server started');
 
     // Initialize media bucket with lifecycle policy
     await initMediaBucket();

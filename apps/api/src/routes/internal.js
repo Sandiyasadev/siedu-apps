@@ -7,6 +7,7 @@ const { emitNewMessage, emitStatusChange } = require('../services/socketService'
 const { sendToChannel, sendTypingIndicator } = require('../services/channelService');
 const handoffService = require('../services/handoffService');
 const { safeCompare } = require('../utils/crypto');
+const logger = require('../utils/logger');
 
 // ============================================
 // Internal API - For n8n communication
@@ -18,7 +19,7 @@ const verifyInternalKey = (req, res, next) => {
     const expectedKey = process.env.INTERNAL_API_KEY;
 
     if (!expectedKey) {
-        console.error('INTERNAL_API_KEY not configured');
+        logger.error('INTERNAL_API_KEY not configured');
         return res.status(500).json({ error: 'Server configuration error' });
     }
 
@@ -98,7 +99,7 @@ router.post('/ai-response', asyncHandler(async (req, res) => {
     if (cleanContent.includes('[HANDOFF]')) {
         cleanContent = cleanContent.replace(/\[HANDOFF\]/g, '').trim();
         aiRequestedHandoff = true;
-        console.log(`[AI Response] HANDOFF detected for conv: ${conversation_id}`);
+        logger.info({ conversation_id }, '[AI Response] HANDOFF tag detected');
     }
 
     if (!conversation_id || !content) {
@@ -150,7 +151,7 @@ router.post('/ai-response', asyncHandler(async (req, res) => {
     let channelResult = { success: true };
     if (conversation.channel_type !== 'web') {
         const chunks = splitMessage(cleanContent);
-        console.log(`[AI Response] Splitting into ${chunks.length} chunk(s) for channel delivery`);
+        logger.debug({ chunks: chunks.length, conversation_id }, '[AI Response] Splitting into chunks for channel delivery');
 
         for (let i = 0; i < chunks.length; i++) {
             if (i > 0) {
@@ -159,7 +160,6 @@ router.post('/ai-response', asyncHandler(async (req, res) => {
                 await new Promise(r => setTimeout(r, 1000 + Math.min(chunks[i].length * 5, 2000)));
             }
             channelResult = await sendToChannel(conversation_id, chunks[i]);
-            console.log(`[AI Response] Chunk ${i + 1}/${chunks.length} sent:`, channelResult.success);
         }
 
         // Update message with last chunk's provider_message_id and status
@@ -179,7 +179,7 @@ router.post('/ai-response', asyncHandler(async (req, res) => {
         }
     }
 
-    console.log(`[AI Response] Conv: ${conversation_id}, Channel: ${conversation.channel_type}, Handoff: ${handoff}`);
+    logger.info({ conversation_id, channel: conversation.channel_type, handoff: !!(handoff || aiRequestedHandoff) }, '[AI Response] Processed');
 
     res.json({
         success: true,
@@ -322,7 +322,7 @@ router.post('/initiate-handoff', asyncHandler(async (req, res) => {
         }
     }
 
-    console.log(`[Handoff] Initiated for ${conversation_id}, success: ${result.success}`);
+    logger.info({ conversation_id, success: result.success }, '[Handoff] Initiated');
 
     res.json(result);
 }));
@@ -386,7 +386,7 @@ router.post('/set-pending-offer', asyncHandler(async (req, res) => {
         WHERE id = $1
     `, [conversation_id, pendingValue]);
 
-    console.log(`[Handoff] Set pending_handoff_offer=${pendingValue} for ${conversation_id}`);
+    logger.debug({ conversation_id, pendingValue }, '[Handoff] Set pending_handoff_offer');
 
     res.json({
         success: true,
@@ -871,7 +871,7 @@ router.patch('/kb-status', asyncHandler(async (req, res) => {
         return res.status(404).json({ error: 'KB source not found' });
     }
 
-    console.log(`[KB] Status updated: ${source_id} → ${status}`);
+    logger.info({ source_id, status }, '[KB] Status updated');
     res.json({ success: true, source: result.rows[0] });
 }));
 
@@ -905,7 +905,7 @@ router.get('/kb-file/:sourceId', asyncHandler(async (req, res) => {
         const stream = await getFileStream(source.object_key);
         stream.pipe(res);
     } catch (error) {
-        console.error(`[KB] Failed to stream file ${source.object_key}:`, error.message);
+        logger.error({ objectKey: source.object_key, err: error.message }, '[KB] Failed to stream file');
         res.status(404).json({ error: 'File not found in storage' });
     }
 }));

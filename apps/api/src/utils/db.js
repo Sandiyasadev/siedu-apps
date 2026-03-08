@@ -1,4 +1,5 @@
 const { Pool } = require('pg');
+const logger = require('./logger');
 
 // ============================================
 // Connection Pool Configuration
@@ -34,36 +35,14 @@ const pool = new Pool(poolConfig);
 // ============================================
 
 // Log when new client connects
-pool.on('connect', (client) => {
+pool.on('connect', () => {
     // Set session parameters for better query planning
-    client.query("SET timezone = 'UTC'");
-    
-    if (process.env.NODE_ENV === 'development') {
-        console.log('📦 New PostgreSQL client connected');
-    }
+    // Note: pool.on('connect') provides the client as first arg
 });
 
 // Log errors
-pool.on('error', (err, client) => {
-    console.error('❌ PostgreSQL pool error:', {
-        message: err.message,
-        code: err.code,
-        timestamp: new Date().toISOString()
-    });
-});
-
-// Log when client is acquired from pool (development only)
-pool.on('acquire', (client) => {
-    if (process.env.DB_DEBUG === 'true') {
-        console.log('📥 Client acquired from pool');
-    }
-});
-
-// Log when client is released back to pool (development only)
-pool.on('release', (err, client) => {
-    if (process.env.DB_DEBUG === 'true') {
-        console.log('📤 Client released to pool');
-    }
+pool.on('error', (err) => {
+    logger.error({ err: err.message, code: err.code }, 'PostgreSQL pool error');
 });
 
 // ============================================
@@ -83,29 +62,17 @@ const query = async (text, params) => {
         const result = await pool.query(text, params);
         const duration = Date.now() - start;
         
-        // Log slow queries (> 100ms) in production, all queries in dev
-        if (duration > 100 || process.env.NODE_ENV === 'development') {
-            const logLevel = duration > 1000 ? 'warn' : 'log';
-            const logFn = duration > 1000 ? console.warn : console.log;
-            
-            if (process.env.NODE_ENV === 'development' || duration > 100) {
-                logFn(`📊 Query ${duration > 1000 ? '⚠️ SLOW' : ''}:`, {
-                    text: text.substring(0, 80).replace(/\s+/g, ' '),
-                    duration: `${duration}ms`,
-                    rows: result.rowCount
-                });
-            }
+        // Log slow queries (> 1000ms) always; all queries in dev
+        if (duration > 1000) {
+            logger.warn({ sql: text.substring(0, 80).replace(/\s+/g, ' '), durationMs: duration, rows: result.rowCount }, 'Slow query');
+        } else if (process.env.NODE_ENV === 'development' && duration > 100) {
+            logger.debug({ sql: text.substring(0, 80).replace(/\s+/g, ' '), durationMs: duration, rows: result.rowCount }, 'Query');
         }
         
         return result;
     } catch (error) {
         const duration = Date.now() - start;
-        console.error('❌ Query error:', {
-            text: text.substring(0, 100).replace(/\s+/g, ' '),
-            duration: `${duration}ms`,
-            error: error.message,
-            code: error.code
-        });
+        logger.error({ sql: text.substring(0, 100).replace(/\s+/g, ' '), durationMs: duration, err: error.message, code: error.code }, 'Query error');
         throw error;
     }
 };
@@ -123,18 +90,10 @@ const transaction = async (callback) => {
         await client.query('BEGIN');
         const result = await callback(client);
         await client.query('COMMIT');
-        
-        if (process.env.NODE_ENV === 'development') {
-            console.log(`📦 Transaction completed in ${Date.now() - start}ms`);
-        }
-        
         return result;
     } catch (error) {
         await client.query('ROLLBACK');
-        console.error('❌ Transaction rolled back:', {
-            duration: `${Date.now() - start}ms`,
-            error: error.message
-        });
+        logger.error({ durationMs: Date.now() - start, err: error.message }, 'Transaction rolled back');
         throw error;
     } finally {
         client.release();
@@ -152,7 +111,7 @@ const getClient = async () => {
     
     // Monkey-patch release to track unreleased clients
     const timeout = setTimeout(() => {
-        console.error('⚠️ Client not released within 30 seconds!');
+        logger.warn('DB client not released within 30 seconds');
     }, 30000);
     
     client.release = () => {
@@ -183,7 +142,7 @@ const healthCheck = async () => {
         const result = await pool.query('SELECT 1 as health');
         return result.rows[0]?.health === 1;
     } catch (error) {
-        console.error('❌ Database health check failed:', error.message);
+        logger.error({ err: error.message }, 'Database health check failed');
         return false;
     }
 };
@@ -193,9 +152,9 @@ const healthCheck = async () => {
  * @returns {Promise<void>}
  */
 const shutdown = async () => {
-    console.log('📦 Closing PostgreSQL connection pool...');
+    logger.info('Closing PostgreSQL connection pool');
     await pool.end();
-    console.log('✅ PostgreSQL pool closed');
+    logger.info('PostgreSQL pool closed');
 };
 
 // Handle process termination
