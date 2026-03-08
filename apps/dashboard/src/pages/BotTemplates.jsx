@@ -101,7 +101,6 @@ export default function BotTemplates() {
         try {
             await saveTemplate(editingTemplate?.id, payload)
             flashNotice(editingTemplate?.id ? 'Template diperbarui' : 'Template ditambahkan')
-            setModals(m => ({ ...m, template: true })) // keep true briefly to unmount smooth
             setModals(m => ({ ...m, template: false }))
         } finally { setSavingTpl(false) }
     }

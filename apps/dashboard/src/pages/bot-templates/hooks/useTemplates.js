@@ -31,9 +31,10 @@ export function useTemplates(botId, getToken, setError) {
         return data
     }
 
-    const fetchTemplates = useCallback(async () => {
+    const fetchTemplates = useCallback(async ({ silent = false } = {}) => {
         if (!botId) return
-        setLoading(true)
+        // silent=true: background refresh after CRUD — skip spinner so list stays visible
+        if (!silent) setLoading(true)
         if (setError) setError('')
 
         try {
@@ -52,10 +53,9 @@ export function useTemplates(botId, getToken, setError) {
             const data = await apiRequest(`/v1/templates?${params.toString()}`)
             setTemplates(data.templates || [])
         } catch (err) {
-            console.error('Failed to fetch templates:', err)
             if (setError) setError(err.message || 'Failed to fetch templates')
         } finally {
-            setLoading(false)
+            if (!silent) setLoading(false)
         }
     }, [botId, filter, getToken, setError])
 
@@ -72,13 +72,13 @@ export function useTemplates(botId, getToken, setError) {
             body: JSON.stringify(body)
         })
 
-        await fetchTemplates()
+        await fetchTemplates({ silent: true })
         return data
     }
 
     const deleteTemplate = async (id) => {
         const data = await apiRequest(`/v1/templates/${id}`, { method: 'DELETE' })
-        await fetchTemplates()
+        await fetchTemplates({ silent: true })
         return data
     }
 
@@ -89,7 +89,7 @@ export function useTemplates(botId, getToken, setError) {
                 method: 'PATCH',
                 body: JSON.stringify({ is_active: nextActive })
             })
-            await fetchTemplates()
+            await fetchTemplates({ silent: true })
             return data
         } finally {
             setActionLoading('')
@@ -105,7 +105,7 @@ export function useTemplates(botId, getToken, setError) {
                 preset_key: 'default-v1'
             })
         })
-        await fetchTemplates()
+        await fetchTemplates({ silent: true })
         return data
     }
 

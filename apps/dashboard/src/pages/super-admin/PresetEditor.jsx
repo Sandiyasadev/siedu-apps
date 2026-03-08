@@ -43,17 +43,18 @@ function PresetEditor() {
     }, [headers])
 
     // Fetch bundle detail
-    const fetchDetail = useCallback(async (id) => {
+    // silent=true: background refresh after CRUD — skip spinner and don't reset expanded state
+    const fetchDetail = useCallback(async (id, { silent = false } = {}) => {
         if (!id) return
-        setDetailLoading(true)
+        if (!silent) setDetailLoading(true)
         try {
             const res = await fetch(`${API_BASE}/v1/admin/preset-bundles/${id}`, { headers: headers() })
             if (!res.ok) throw new Error('Gagal memuat detail bundle')
             const data = await res.json()
             setDetail(data)
-            setExpandedCats(new Set((data.categories || []).map(c => c.key)))
+            if (!silent) setExpandedCats(new Set((data.categories || []).map(c => c.key)))
         } catch (err) { setNotice({ type: 'error', message: err.message }) }
-        finally { setDetailLoading(false) }
+        finally { if (!silent) setDetailLoading(false) }
     }, [headers])
 
     useEffect(() => { fetchBundles().finally(() => setLoading(false)) }, [fetchBundles])
@@ -218,8 +219,8 @@ function PresetEditor() {
             if (!res.ok) throw new Error(data.error || 'Operasi gagal')
             setNotice({ type: 'success', message: modal.startsWith('add') ? 'Berhasil ditambahkan' : 'Berhasil diperbarui' })
             setModal(null)
-            await fetchDetail(bundle.id)
-            await fetchBundles()
+            await fetchDetail(bundle.id, { silent: true })
+            if (modal.startsWith('add')) await fetchBundles()
         } catch (err) { setNotice({ type: 'error', message: err.message }) }
         finally { setSaving(false) }
     }
@@ -234,7 +235,7 @@ function PresetEditor() {
             })
             if (!res.ok) { const d = await res.json(); throw new Error(d.error || 'Hapus gagal') }
             setNotice({ type: 'success', message: `${type} "${label}" dihapus` })
-            await fetchDetail(bundle.id)
+            await fetchDetail(bundle.id, { silent: true })
             await fetchBundles()
         } catch (err) { setNotice({ type: 'error', message: err.message }) }
         finally { setSaving(false) }
